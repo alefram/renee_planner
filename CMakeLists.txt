@@ -14,6 +14,53 @@ find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(yaml-cpp REQUIRED)
 
+add_library(renee_scan_planner
+  src/circular_scan_pattern.cpp
+  src/scan_config_loader.cpp
+  src/scan_plan_generator.cpp
+  src/scan_plan_writer.cpp
+)
+
+target_include_directories(renee_scan_planner PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+ament_target_dependencies(renee_scan_planner
+  geometry_msgs
+)
+
+target_link_libraries(renee_scan_planner
+  yaml-cpp
+)
+
+add_executable(scan_planner_node
+  src/main.cpp
+  src/scan_planner_node.cpp
+)
+
+target_include_directories(scan_planner_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+ament_target_dependencies(scan_planner_node
+  rclcpp
+  geometry_msgs
+)
+
+target_link_libraries(scan_planner_node
+  renee_scan_planner
+)
+
+install(TARGETS
+  renee_scan_planner
+  scan_planner_node
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
+
 install(DIRECTORY
   include/
   DESTINATION include
@@ -25,7 +72,28 @@ install(DIRECTORY
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(PROGRAMS
+  scripts/plot_scan_waypoints.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+
+  ament_add_gtest(test_scan_plan_generator
+    test/test_scan_plan_generator.cpp
+  )
+  target_link_libraries(test_scan_plan_generator
+    renee_scan_planner
+  )
+  ament_target_dependencies(test_scan_plan_generator
+    geometry_msgs
+  )
+  target_include_directories(test_scan_plan_generator PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+  )
+
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)
