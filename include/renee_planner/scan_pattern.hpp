@@ -23,7 +23,7 @@ struct ScanPatternPoint
 
 // Strategy interface for the planar (x, y) path scanned around a machine.
 // To add a new trajectory shape: implement this interface (see
-// CircularScanPattern for an example), then teach ScanConfigLoader how to
+// CircularPattern for an example), then teach ScanConfigLoader how to
 // build it from a `scan.pattern_type` value in the YAML config. Nothing
 // else in renee_planner needs to change -- ScanPlanGenerator only ever
 // talks to a ScanConfig's `pattern` through this interface.

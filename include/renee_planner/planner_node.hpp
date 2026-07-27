@@ -1,5 +1,5 @@
-#ifndef RENEE_PLANNER__SCAN_PLANNER_NODE_HPP_
-#define RENEE_PLANNER__SCAN_PLANNER_NODE_HPP_
+#ifndef RENEE_PLANNER__PLANNER_NODE_HPP_
+#define RENEE_PLANNER__PLANNER_NODE_HPP_
 
 #include "renee_planner/scan_config_loader.hpp"
 #include "renee_planner/scan_plan_generator.hpp"
@@ -12,10 +12,11 @@
 namespace renee_planner
 {
 
-class ScanPlannerNode : public rclcpp::Node
+class PlannerNode : public rclcpp::Node
 {
 public:
-  explicit ScanPlannerNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
+  explicit PlannerNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
+  int run();
 
 private:
   ScanConfigLoader config_loader_;
@@ -27,4 +28,4 @@ private:
 
 }  // namespace renee_planner
 
-#endif  // RENEE_PLANNER__SCAN_PLANNER_NODE_HPP_
+#endif  // RENEE_PLANNER__PLANNER_NODE_HPP_

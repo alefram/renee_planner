@@ -1,4 +1,4 @@
-#include "renee_planner/scan_planner_node.hpp"
+#include "renee_planner/planner_node.hpp"
 
 #include <rclcpp/rclcpp.hpp>
 
@@ -7,8 +7,8 @@
 int main(int argc, char * argv[])
 {
   rclcpp::init(argc, argv);
-  auto node = std::make_shared<renee_planner::ScanPlannerNode>();
-  rclcpp::spin(node);
+  auto node = std::make_shared<renee_planner::PlannerNode>();
+  const int result = node->run();
   rclcpp::shutdown();
-  return 0;
+  return result;
 }

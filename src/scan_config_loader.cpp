@@ -1,6 +1,6 @@
 #include "renee_planner/scan_config_loader.hpp"
 
-#include "renee_planner/circular_scan_pattern.hpp"
+#include "renee_planner/circular_pattern.hpp"
 
 #include <yaml-cpp/yaml.h>
 
@@ -60,18 +60,18 @@ std::vector<double> parseHeights(const YAML::Node & node)
 
 std::shared_ptr<ScanPattern> parseCircularPattern(const YAML::Node & scan)
 {
-  CircularScanPatternParams params;
+  CircularPatternParams params;
   params.base_radius = requireScalar<double>(scan["base_radius"], "scan.base_radius");
   params.end_effector_radius =
     requireScalar<double>(scan["end_effector_radius"], "scan.end_effector_radius");
   params.points_per_ring = requireScalar<int>(scan["points_per_ring"], "scan.points_per_ring");
   params.start_angle_rad = scan["start_angle_deg"] ?
     degreesToRadians(scan["start_angle_deg"].as<double>()) : 0.0;
-  return std::make_shared<CircularScanPattern>(params);
+  return std::make_shared<CircularPattern>(params);
 }
 
 // To add a new trajectory shape: implement a ScanPattern (see
-// circular_scan_pattern.hpp/.cpp), add a parseXxxPattern(scan) helper above
+// circular_pattern.hpp/.cpp), add a parseXxxPattern(scan) helper above
 // that reads its YAML fields, and add a branch here for its
 // `scan.pattern_type` name. Nothing outside this function needs to change.
 std::shared_ptr<ScanPattern> parsePattern(const YAML::Node & scan)

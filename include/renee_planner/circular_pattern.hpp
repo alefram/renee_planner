@@ -1,12 +1,12 @@
-#ifndef RENEE_PLANNER__CIRCULAR_SCAN_PATTERN_HPP_
-#define RENEE_PLANNER__CIRCULAR_SCAN_PATTERN_HPP_
+#ifndef RENEE_PLANNER__CIRCULAR_PATTERN_HPP_
+#define RENEE_PLANNER__CIRCULAR_PATTERN_HPP_
 
 #include "renee_planner/scan_pattern.hpp"
 
 namespace renee_planner
 {
 
-struct CircularScanPatternParams
+struct CircularPatternParams
 {
   double base_radius{0.0};
   double end_effector_radius{0.0};
@@ -18,18 +18,18 @@ struct CircularScanPatternParams
 // their own circle of constant radius around the machine, in lockstep, so
 // the end effector is always `base_radius - end_effector_radius` in front
 // of the base along the same ray from machine_center.
-class CircularScanPattern : public ScanPattern
+class CircularPattern : public ScanPattern
 {
 public:
-  explicit CircularScanPattern(const CircularScanPatternParams & params);
+  explicit CircularPattern(const CircularPatternParams & params);
 
   std::vector<ScanPatternPoint> generatePoints(
     const geometry_msgs::msg::Point & machine_center) const override;
 
 private:
-  CircularScanPatternParams params_;
+  CircularPatternParams params_;
 };
 
 }  // namespace renee_planner
 
-#endif  // RENEE_PLANNER__CIRCULAR_SCAN_PATTERN_HPP_
+#endif  // RENEE_PLANNER__CIRCULAR_PATTERN_HPP_

@@ -1,4 +1,4 @@
-#include "renee_planner/circular_scan_pattern.hpp"
+#include "renee_planner/circular_pattern.hpp"
 
 #include <cmath>
 #include <stdexcept>
@@ -10,7 +10,7 @@ namespace
 constexpr double kTwoPi = 6.28318530717958647692;
 }  // namespace
 
-CircularScanPattern::CircularScanPattern(const CircularScanPatternParams & params)
+CircularPattern::CircularPattern(const CircularPatternParams & params)
 : params_(params)
 {
   if (params_.base_radius <= 0.0) {
@@ -24,7 +24,7 @@ CircularScanPattern::CircularScanPattern(const CircularScanPatternParams & param
   }
 }
 
-std::vector<ScanPatternPoint> CircularScanPattern::generatePoints(
+std::vector<ScanPatternPoint> CircularPattern::generatePoints(
   const geometry_msgs::msg::Point & machine_center) const
 {
   std::vector<ScanPatternPoint> points;

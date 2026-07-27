@@ -52,7 +52,7 @@ ARM_BASE_Z_OFFSET = 0.11 + 0.1775 + 0.235
 # positioned in a shared local frame) at the default robot_scale=0.001:
 #   local min ~= (-2.8455, -1.2139, -0.2662) from campetella_base_link's origin
 #   local max ~= ( 1.3751,  0.3470,  1.4475) from campetella_base_link's origin
-# campetella_scan.yaml's machine.center is set to the *geometric center* of
+# scan_config.yaml's machine.center is set to the *geometric center* of
 # this box (spawn origin + the offset above), not the spawn origin itself --
 # so the box is centered on machine_center with no further xy offset, and
 # centered vertically on machine_center.z too.

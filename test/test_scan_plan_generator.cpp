@@ -1,4 +1,4 @@
-#include "renee_planner/circular_scan_pattern.hpp"
+#include "renee_planner/circular_pattern.hpp"
 #include "renee_planner/scan_plan_generator.hpp"
 #include "renee_planner/scan_types.hpp"
 
@@ -16,12 +16,12 @@ constexpr double kTolerance = 1e-9;
 
 std::shared_ptr<renee_planner::ScanPattern> makeCircularPattern(int points_per_ring = 4)
 {
-  renee_planner::CircularScanPatternParams params;
+  renee_planner::CircularPatternParams params;
   params.base_radius = 2.0;
   params.end_effector_radius = 1.0;
   params.points_per_ring = points_per_ring;
   params.start_angle_rad = 0.0;
-  return std::make_shared<renee_planner::CircularScanPattern>(params);
+  return std::make_shared<renee_planner::CircularPattern>(params);
 }
 
 renee_planner::ScanConfig makeBaseConfig()
@@ -165,13 +165,13 @@ TEST(ScanPlanGeneratorTest, ThrowsWhenPatternMissing)
   EXPECT_THROW(generator.generateInspectionPath(config), std::invalid_argument);
 }
 
-TEST(CircularScanPatternTest, ThrowsOnInvalidParams)
+TEST(CircularPatternTest, ThrowsOnInvalidParams)
 {
-  renee_planner::CircularScanPatternParams params;
+  renee_planner::CircularPatternParams params;
   params.base_radius = 2.0;
   params.end_effector_radius = 1.0;
   params.points_per_ring = 0;
   params.start_angle_rad = 0.0;
 
-  EXPECT_THROW(renee_planner::CircularScanPattern{params}, std::invalid_argument);
+  EXPECT_THROW(renee_planner::CircularPattern{params}, std::invalid_argument);
 }
