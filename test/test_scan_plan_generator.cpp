@@ -13,6 +13,7 @@ namespace
 {
 
 constexpr double kTolerance = 1e-9;
+constexpr double kPi = 3.14159265358979323846;
 
 std::shared_ptr<renee_planner::ScanPattern> makeCircularPattern(int points_per_ring = 4)
 {
@@ -27,7 +28,7 @@ std::shared_ptr<renee_planner::ScanPattern> makeCircularPattern(int points_per_r
 renee_planner::ScanConfig makeBaseConfig()
 {
   renee_planner::ScanConfig config;
-  config.global_frame_id = "world";
+  config.global_frame_id = "robot_map";
   config.machine_center.x = 0.0;
   config.machine_center.y = 0.0;
   config.machine_center.z = 0.0;
@@ -55,6 +56,15 @@ geometry_msgs::msg::Point rotateLocalZAxis(
   return axis;
 }
 
+double yawFromQuaternion(const geometry_msgs::msg::Quaternion & quaternion)
+{
+  const double sin_yaw = 2.0 * (
+    quaternion.w * quaternion.z + quaternion.x * quaternion.y);
+  const double cos_yaw = 1.0 - 2.0 * (
+    quaternion.y * quaternion.y + quaternion.z * quaternion.z);
+  return std::atan2(sin_yaw, cos_yaw);
+}
+
 }  // namespace
 
 TEST(ScanPlanGeneratorTest, GeneratesOneWaypointPerHeightAndPoint)
@@ -64,7 +74,7 @@ TEST(ScanPlanGeneratorTest, GeneratesOneWaypointPerHeightAndPoint)
 
   const auto plan = generator.generateInspectionPath(config);
 
-  EXPECT_EQ(plan.frame_id, "world");
+  EXPECT_EQ(plan.frame_id, "robot_map");
   EXPECT_NEAR(plan.machine_center.x, 0.0, kTolerance);
   EXPECT_NEAR(plan.machine_center.y, 0.0, kTolerance);
   EXPECT_NEAR(plan.machine_center.z, 0.0, kTolerance);
@@ -74,15 +84,14 @@ TEST(ScanPlanGeneratorTest, GeneratesOneWaypointPerHeightAndPoint)
 
 TEST(ScanPlanGeneratorTest, PreservesGlobalFrameInGeneratedPoses)
 {
-  auto config = makeBaseConfig();
-  config.global_frame_id = "world";
+  const auto config = makeBaseConfig();
   const renee_planner::ScanPlanGenerator generator;
 
   const auto plan = generator.generateInspectionPath(config);
 
   ASSERT_FALSE(plan.waypoints.empty());
-  EXPECT_EQ(plan.waypoints.front().base_pose.header.frame_id, "world");
-  EXPECT_EQ(plan.waypoints.front().end_effector_pose.header.frame_id, "world");
+  EXPECT_EQ(plan.waypoints.front().base_pose.header.frame_id, "robot_map");
+  EXPECT_EQ(plan.waypoints.front().end_effector_pose.header.frame_id, "robot_map");
 }
 
 TEST(ScanPlanGeneratorTest, GeneratesCircularBaseAndEndEffectorPositions)
@@ -109,7 +118,50 @@ TEST(ScanPlanGeneratorTest, GeneratesCircularBaseAndEndEffectorPositions)
   EXPECT_NEAR(second.end_effector_pose.pose.position.y, 1.0, kTolerance);
 }
 
-TEST(ScanPlanGeneratorTest, OrientsEndEffectorLocalZAxisTowardMachineCenter)
+TEST(ScanPlanGeneratorTest, GeneratesExpectedRobotMapPoseAtNinetyDegrees)
+{
+  auto config = makeBaseConfig();
+  config.machine_center.x = -2.7352;
+  config.machine_center.y = -3.4334;
+  config.inspection_viewpoints.front().height = 0.9;
+
+  renee_planner::CircularPatternParams params;
+  params.base_radius = 3.0;
+  params.end_effector_radius = 2.6;
+  params.points_per_ring = 1;
+  params.start_angle_rad = kPi / 2.0;
+  config.pattern = std::make_shared<renee_planner::CircularPattern>(params);
+
+  const renee_planner::ScanPlanGenerator generator;
+  const auto plan = generator.generateInspectionPath(config);
+
+  ASSERT_EQ(plan.waypoints.size(), 1u);
+  const auto & waypoint = plan.waypoints.front();
+  EXPECT_EQ(waypoint.base_pose.header.frame_id, "robot_map");
+  EXPECT_NEAR(waypoint.base_pose.pose.position.x, -2.7352, 1e-6);
+  EXPECT_NEAR(waypoint.base_pose.pose.position.y, -0.4334, 1e-6);
+  EXPECT_NEAR(yawFromQuaternion(waypoint.base_pose.pose.orientation), -kPi / 2.0, 1e-6);
+  EXPECT_NEAR(waypoint.end_effector_pose.pose.position.x, -2.7352, 1e-6);
+  EXPECT_NEAR(waypoint.end_effector_pose.pose.position.y, -0.8334, 1e-6);
+  EXPECT_NEAR(waypoint.end_effector_pose.pose.position.z, 0.9, 1e-6);
+}
+
+TEST(ScanPlanGeneratorTest, GeneratesEightCircularStations)
+{
+  auto config = makeBaseConfig();
+  config.pattern = makeCircularPattern(/*points_per_ring=*/8);
+  const renee_planner::ScanPlanGenerator generator;
+
+  const auto plan = generator.generateInspectionPath(config);
+
+  ASSERT_EQ(plan.waypoints.size(), 8u);
+  for (const auto & waypoint : plan.waypoints) {
+    EXPECT_EQ(waypoint.base_pose.header.frame_id, "robot_map");
+    EXPECT_EQ(waypoint.end_effector_pose.header.frame_id, "robot_map");
+  }
+}
+
+TEST(ScanPlanGeneratorTest, OrientsEndEffectorHorizontallyTowardMachineCenter)
 {
   const auto config = makeBaseConfig();
   const renee_planner::ScanPlanGenerator generator;
@@ -122,10 +174,18 @@ TEST(ScanPlanGeneratorTest, OrientsEndEffectorLocalZAxisTowardMachineCenter)
   // local Z axis must be the one aimed at the machine center.
   const auto forward_axis = rotateLocalZAxis(waypoint.end_effector_pose.pose.orientation);
 
-  const double expected = -1.0 / std::sqrt(2.0);
-  EXPECT_NEAR(forward_axis.x, expected, 1e-6);
+  EXPECT_NEAR(forward_axis.x, -1.0, 1e-6);
   EXPECT_NEAR(forward_axis.y, 0.0, 1e-6);
-  EXPECT_NEAR(forward_axis.z, expected, 1e-6);
+  EXPECT_NEAR(forward_axis.z, 0.0, 1e-6);
+}
+
+TEST(ScanPlanGeneratorTest, RejectsFrameOtherThanRobotMap)
+{
+  auto config = makeBaseConfig();
+  config.global_frame_id = "world";
+  const renee_planner::ScanPlanGenerator generator;
+
+  EXPECT_THROW(generator.generateInspectionPath(config), std::invalid_argument);
 }
 
 TEST(ScanPlanGeneratorTest, GeneratesWaypointsForMultipleHeights)

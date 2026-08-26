@@ -74,7 +74,14 @@ install(PROGRAMS
 )
 
 if(BUILD_TESTING)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
   find_package(ament_cmake_gtest REQUIRED)
+
+  add_test(
+    NAME test_plot_structure
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/test_plot_structure.py
+  )
+  set_tests_properties(test_plot_structure PROPERTIES ENVIRONMENT "PYTHONNOUSERSITE=1")
 
   ament_add_gtest(test_scan_plan_generator
     test/test_scan_plan_generator.cpp

@@ -3,30 +3,13 @@
 import argparse
 import math
 from pathlib import Path
+import subprocess
+import warnings
+import xml.etree.ElementTree as ET
 
-import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+import numpy as np
 import yaml
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-
-# Static "world -> robot_map" transform published in scanning_entrypoint.sh
-# (x=3.0 y=3.0 z=0.0, no rotation). Used to convert world-frame fixtures
-# (walls, machine spawn pose) into the robot_map frame the plan file is in.
-WORLD_TO_ROBOT_MAP = (3.0, 3.0, 0.0)
-
-# Walls from renee_rbvogui_navigation/world/scanning.sdf, in world frame:
-# (x, y, z, yaw, size_x, size_y, size_z).
-WALLS_WORLD = [
-    (4.0, 0.0, 1.0, 0.0, 0.1, 8.0, 2.0),
-    (-4.0, 0.0, 1.0, 0.0, 0.1, 8.0, 2.0),
-    (0.0, 4.0, 1.0, 1.5707963, 0.1, 8.0, 2.0),
-    (0.0, -4.0, 1.0, -1.5707963, 0.1, 8.0, 2.0),
-]
-
-# Floor spans the room's interior (inner wall faces, i.e. wall centerline
-# minus half the 0.1 m wall thickness), in robot_map: x in [-6.95, 0.95],
-# y in [-6.95, 0.95].
-FLOOR_BOUNDS_XY = ((-6.95, 0.95), (-6.95, 0.95))
 
 # RB-Vogui+ chassis: rbvogui_body.urdf.xacro places chassis_link at
 # xyz="-0.012 0 0.1775" from base_link, and base_footprint -> base_link adds
@@ -46,20 +29,6 @@ CHASSIS_Z_OFFSET = 0.28
 # not at ground level, which is where NavigateToPose's base_pose actually is.
 ARM_BASE_LOCAL_XY_OFFSET = (-0.012, 0.0)
 ARM_BASE_Z_OFFSET = 0.11 + 0.1775 + 0.235
-
-# campetella_CRC bounding box, measured directly from its STL meshes (all
-# parts are attached via zero-offset fixed joints, so the meshes are already
-# positioned in a shared local frame) at the default robot_scale=0.001:
-#   local min ~= (-2.8455, -1.2139, -0.2662) from campetella_base_link's origin
-#   local max ~= ( 1.3751,  0.3470,  1.4475) from campetella_base_link's origin
-# scan_config.yaml's machine.center is set to the *geometric center* of
-# this box (spawn origin + the offset above), not the spawn origin itself --
-# so the box is centered on machine_center with no further xy offset, and
-# centered vertically on machine_center.z too.
-MACHINE_SIZE = (4.2206, 1.5609, 1.7137)
-MACHINE_CENTER_XY_OFFSET = (0.0, 0.0)                # box is centered on machine_center
-MACHINE_Z_BOTTOM_OFFSET = -MACHINE_SIZE[2] / 2.0      # box is centered on machine_center.z too
-
 
 def parse_position(pose_node):
     position = pose_node["position"]
@@ -127,6 +96,21 @@ def load_waypoints(plan_file):
         raise ValueError("scan_waypoints must be a list")
 
     return data, waypoints
+
+
+def structure_metadata(plan_data):
+    """Read optional structure visualization settings embedded in a plan YAML."""
+    structure = plan_data.get("structure")
+    if structure is None:
+        return None
+    model = structure.get("model")
+    pose = structure.get("origin_pose")
+    if not isinstance(model, str) or not isinstance(pose, list) or len(pose) != 4:
+        raise ValueError("plan structure must contain model and origin_pose [x, y, z, yaw]")
+    args = structure.get("xacro_args", [])
+    if not isinstance(args, list) or not all(isinstance(argument, str) for argument in args):
+        raise ValueError("plan structure.xacro_args must be a list of strings")
+    return Path(model), tuple(float(value) for value in pose), tuple(args)
 
 
 def infer_center(points):
@@ -206,40 +190,165 @@ def plot_box(ax, center_xy, z_bottom, size_xyz, yaw=0.0, color="tab:gray", label
     ax.plot(xs, ys, zs, color=color, linewidth=1.2, label=label)
 
 
-def plot_plane(ax, corners, color="0.6", alpha=0.15):
-    """Draw a single filled, semi-transparent quad given 4 (x, y, z) corners in order."""
-    poly = Poly3DCollection([corners], facecolor=color, edgecolor=color, alpha=alpha)
-    ax.add_collection3d(poly)
+def rpy_matrix(roll, pitch, yaw):
+    """Rotation matrix for URDF's fixed-axis roll, pitch, yaw convention."""
+    cr, sr = math.cos(roll), math.sin(roll)
+    cp, sp = math.cos(pitch), math.sin(pitch)
+    cy, sy = math.cos(yaw), math.sin(yaw)
+    return np.array([
+        [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+        [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+        [-sp, cp * sr, cp * cr],
+    ])
 
 
-def floor_corners(bounds_xy, z=0.0):
-    (x_min, x_max), (y_min, y_max) = bounds_xy
-    return [
-        (x_min, y_min, z),
-        (x_max, y_min, z),
-        (x_max, y_max, z),
-        (x_min, y_max, z),
-    ]
+def transform_matrix(xyz=(0.0, 0.0, 0.0), rpy=(0.0, 0.0, 0.0)):
+    transform = np.eye(4)
+    transform[:3, :3] = rpy_matrix(*rpy)
+    transform[:3, 3] = xyz
+    return transform
 
 
-def wall_plane_corners(center_xy, z_bottom, length, height, yaw):
-    """Corners of a wall's face, ignoring its thickness (a flat vertical plane)."""
-    half_length = length / 2.0
-    cos_yaw, sin_yaw = math.cos(yaw), math.sin(yaw)
+def parse_vector(value, length, label):
+    if value is None:
+        return [0.0] * length
+    values = [float(item) for item in value.split()]
+    if len(values) != length:
+        raise ValueError(f"{label} must contain {length} values")
+    return values
 
-    def point(ly, z):
-        return (
-            center_xy[0] - ly * sin_yaw,
-            center_xy[1] + ly * cos_yaw,
-            z,
-        )
 
-    return [
-        point(-half_length, z_bottom),
-        point(half_length, z_bottom),
-        point(half_length, z_bottom + height),
-        point(-half_length, z_bottom + height),
-    ]
+def origin_transform(node):
+    origin = node.find("origin")
+    if origin is None:
+        return np.eye(4)
+    return transform_matrix(
+        parse_vector(origin.get("xyz"), 3, "origin xyz"),
+        parse_vector(origin.get("rpy"), 3, "origin rpy"),
+    )
+
+
+def expand_robot_description(model_path, xacro_args):
+    if model_path.suffix != ".xacro":
+        return model_path.read_text(encoding="utf-8")
+    command = ["xacro", str(model_path), *xacro_args]
+    try:
+        result = subprocess.run(command, check=True, text=True, capture_output=True)
+    except FileNotFoundError as error:
+        raise RuntimeError("xacro is required to plot a .xacro model; source the ROS workspace first") from error
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError(f"xacro failed for {model_path}: {error.stderr.strip()}") from error
+    return result.stdout
+
+
+def primitive_from_collision(collision, link_transform):
+    geometry = collision.find("geometry")
+    if geometry is None:
+        return None, False
+    transform = link_transform @ origin_transform(collision)
+    box = geometry.find("box")
+    if box is not None:
+        return {"kind": "box", "size": parse_vector(box.get("size"), 3, "box size"), "transform": transform}, False
+    cylinder = geometry.find("cylinder")
+    if cylinder is not None:
+        return {"kind": "cylinder", "radius": float(cylinder.get("radius")), "length": float(cylinder.get("length")), "transform": transform}, False
+    sphere = geometry.find("sphere")
+    if sphere is not None:
+        return {"kind": "sphere", "radius": float(sphere.get("radius")), "transform": transform}, False
+    return None, geometry.find("mesh") is not None
+
+
+def load_structure_primitives(model_path, structure_pose, xacro_args=()):
+    """Load primitive collision geometry from any URDF or expanded Xacro."""
+    xml_text = expand_robot_description(model_path, xacro_args)
+    try:
+        robot = ET.fromstring(xml_text)
+    except ET.ParseError as error:
+        raise ValueError(f"Invalid URDF/XML in {model_path}: {error}") from error
+
+    links = {link.get("name"): link for link in robot.findall("link") if link.get("name")}
+    children = set()
+    joints_by_parent = {}
+    for joint in robot.findall("joint"):
+        parent = joint.find("parent")
+        child = joint.find("child")
+        if parent is None or child is None or not parent.get("link") or not child.get("link"):
+            continue
+        children.add(child.get("link"))
+        joints_by_parent.setdefault(parent.get("link"), []).append((child.get("link"), origin_transform(joint)))
+
+    roots = [name for name in links if name not in children]
+    if not roots:
+        raise ValueError("URDF has no root link")
+    x, y, z, yaw = structure_pose
+    root_transform = transform_matrix((x, y, z), (0.0, 0.0, yaw))
+    primitives, mesh_count, visited = [], 0, set()
+
+    def visit(link_name, link_transform):
+        nonlocal mesh_count
+        if link_name in visited:
+            return
+        visited.add(link_name)
+        link = links.get(link_name)
+        if link is not None:
+            for collision in link.findall("collision"):
+                primitive, has_mesh = primitive_from_collision(collision, link_transform)
+                if primitive is not None:
+                    primitives.append(primitive)
+                mesh_count += int(has_mesh)
+        for child_name, joint_transform in joints_by_parent.get(link_name, []):
+            visit(child_name, link_transform @ joint_transform)
+
+    for root in roots:
+        visit(root, root_transform)
+    if not primitives:
+        suffix = "; mesh collisions are not rendered" if mesh_count else ""
+        raise ValueError(f"No supported collision primitives (box, cylinder, sphere) found in {model_path}{suffix}")
+    if mesh_count:
+        warnings.warn(f"Skipped {mesh_count} mesh collision(s) in {model_path}; use simple primitive collisions for the basic structure plot.", RuntimeWarning)
+    return primitives
+
+
+def transform_points(transform, points):
+    local = np.asarray(points, dtype=float)
+    homogeneous = np.column_stack((local, np.ones(len(local))))
+    return (transform @ homogeneous.T).T[:, :3]
+
+
+def plot_structure(ax, primitives):
+    """Draw basic URDF collision primitives as lightweight wireframes."""
+    first = True
+    for primitive in primitives:
+        color = "tab:orange"
+        label = "Structure collision primitives" if first else None
+        first = False
+        transform = primitive["transform"]
+        if primitive["kind"] == "box":
+            sx, sy, sz = (value / 2.0 for value in primitive["size"])
+            corners = [(a * sx, b * sy, c * sz) for a in (-1, 1) for b in (-1, 1) for c in (-1, 1)]
+            edges = [(0, 1), (0, 2), (0, 4), (1, 3), (1, 5), (2, 3), (2, 6), (3, 7), (4, 5), (4, 6), (5, 7), (6, 7)]
+            points = transform_points(transform, corners)
+            segments = [(points[a], points[b]) for a, b in edges]
+            xs, ys, zs = segments_to_nan_separated(segments)
+            ax.plot(xs, ys, zs, color=color, linewidth=0.8, label=label)
+        elif primitive["kind"] == "cylinder":
+            angles = np.linspace(0.0, 2.0 * math.pi, 20)
+            radius, half_length = primitive["radius"], primitive["length"] / 2.0
+            bottom = [(radius * math.cos(a), radius * math.sin(a), -half_length) for a in angles]
+            top = [(radius * math.cos(a), radius * math.sin(a), half_length) for a in angles]
+            for ring, ring_label in ((bottom, label), (top, None)):
+                points = transform_points(transform, ring)
+                ax.plot(points[:, 0], points[:, 1], points[:, 2], color=color, linewidth=0.8, label=ring_label)
+            bottom_points, top_points = transform_points(transform, bottom), transform_points(transform, top)
+            for index in range(0, len(angles), 5):
+                ax.plot([bottom_points[index, 0], top_points[index, 0]], [bottom_points[index, 1], top_points[index, 1]], [bottom_points[index, 2], top_points[index, 2]], color=color, linewidth=0.8)
+        else:
+            radius = primitive["radius"]
+            angles = np.linspace(0.0, 2.0 * math.pi, 24)
+            rings = [[(radius * math.cos(a), radius * math.sin(a), 0.0) for a in angles], [(radius * math.cos(a), 0.0, radius * math.sin(a)) for a in angles], [(0.0, radius * math.cos(a), radius * math.sin(a)) for a in angles]]
+            for ring_index, ring in enumerate(rings):
+                points = transform_points(transform, ring)
+                ax.plot(points[:, 0], points[:, 1], points[:, 2], color=color, linewidth=0.8, label=label if ring_index == 0 else None)
 
 
 def plot_waypoints(
@@ -247,13 +356,12 @@ def plot_waypoints(
     save_file=None,
     show_labels=False,
     arrow_scale=0.25,
-    machine_size=MACHINE_SIZE,
-    machine_center_xy_offset=MACHINE_CENTER_XY_OFFSET,
-    machine_z_bottom_offset=MACHINE_Z_BOTTOM_OFFSET,
+    structure_model=None,
+    structure_pose=None,
+    xacro_args=(),
     show_chassis=True,
     chassis_size=CHASSIS_SIZE,
     chassis_z_offset=CHASSIS_Z_OFFSET,
-    show_walls=True,
 ):
     data, waypoints = load_waypoints(plan_file)
 
@@ -273,18 +381,21 @@ def plot_waypoints(
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection="3d")
 
-    if show_walls:
-        plot_plane(ax, floor_corners(FLOOR_BOUNDS_XY), color="0.65", alpha=0.25)
-        for wx, wy, wz, wyaw, _sx, sy, sz in WALLS_WORLD:
-            center_x = wx - WORLD_TO_ROBOT_MAP[0]
-            center_y = wy - WORLD_TO_ROBOT_MAP[1]
-            z_bottom = (wz - WORLD_TO_ROBOT_MAP[2]) - sz / 2.0
-            plot_plane(
-                ax,
-                wall_plane_corners((center_x, center_y), z_bottom, sy, sz, wyaw),
-                color="0.4",
-                alpha=0.25,
-            )
+    configured_structure = structure_metadata(data)
+    model = Path(structure_model) if structure_model is not None else None
+    pose = tuple(structure_pose) if structure_pose is not None else None
+    arguments = tuple(xacro_args)
+    if configured_structure is not None:
+        config_model, config_pose, config_arguments = configured_structure
+        model = model or config_model
+        pose = pose or config_pose
+        arguments = arguments or config_arguments
+    if model is not None:
+        if pose is None:
+            raise ValueError("--structure-pose is required when --structure-model is used and the plan has no structure origin_pose")
+        plot_structure(ax, load_structure_primitives(model, pose, arguments))
+    else:
+        warnings.warn("No structure model in the plan or CLI; plotting waypoints without structure geometry.", RuntimeWarning)
 
     arm_base_points = [
         arm_base_point(base_point, yaw_from_quaternion(base_orientation))
@@ -381,16 +492,7 @@ def plot_waypoints(
             marker="x",
             color="black",
             s=80,
-            label="machine_center (campetella spawn origin)",
-        )
-        plot_box(
-            ax,
-            (center[0] + machine_center_xy_offset[0], center[1] + machine_center_xy_offset[1]),
-            center[2] + machine_z_bottom_offset,
-            machine_size,
-            yaw=0.0,
-            color="tab:orange",
-            label="Machine (measured from meshes)",
+            label="machine_center (from plan)",
         )
 
     if show_labels:
@@ -399,21 +501,10 @@ def plot_waypoints(
 
     frame_id = data.get("frame_id", "unknown")
     ax.set_title(f"Generated scan waypoints ({frame_id})")
-    ax.set_xlabel("X [m]")
-    ax.set_ylabel("Y [m]")
-    ax.set_zlabel("Z [m]")
 
     handles, plot_labels = ax.get_legend_handles_labels()
-    if show_walls:
-        # Poly3DCollection planes don't reliably register with the automatic
-        # legend, so add proxy patches for them.
-        handles += [
-            mpatches.Patch(color="0.65", alpha=0.25, label="Floor"),
-            mpatches.Patch(color="0.4", alpha=0.25, label="Room walls"),
-        ]
-        plot_labels += ["Floor", "Room walls"]
     ax.legend(handles, plot_labels, fontsize=8)
-    ax.grid(True)
+    ax.set_axis_off()
     set_axes_equal(ax)
 
     if save_file:
@@ -424,9 +515,9 @@ def plot_waypoints(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Plot scan waypoints generated by renee_planner, with the "
-        "room walls and the campetella machine drawn to scale for a quick "
-        "sanity check before running the real simulation."
+        description="Plot scan waypoints generated by renee_planner, with "
+        "optional generic URDF/Xacro collision primitives for a quick "
+        "sanity check before running the simulation."
     )
     parser.add_argument("plan_file", type=Path, help="Generated scan plan YAML file.")
     parser.add_argument(
@@ -447,26 +538,17 @@ def main():
         help="Length of camera orientation arrows.",
     )
     parser.add_argument(
-        "--machine-size",
-        type=float,
-        nargs=3,
-        default=MACHINE_SIZE,
-        metavar=("X", "Y", "Z"),
-        help="Machine bounding box size in meters (default: measured campetella_CRC, %(default)s).",
+        "--structure-model", type=Path, default=None,
+        help="URDF or Xacro model whose collision primitives will be drawn.",
     )
     parser.add_argument(
-        "--machine-center-offset",
-        type=float,
-        nargs=2,
-        default=MACHINE_CENTER_XY_OFFSET,
-        metavar=("DX", "DY"),
-        help="Offset from machine_center to the box's horizontal center (default: %(default)s).",
+        "--structure-pose", type=float, nargs=4, default=None,
+        metavar=("X", "Y", "Z", "YAW"),
+        help="Pose of the model origin in the plan frame; required with --structure-model.",
     )
     parser.add_argument(
-        "--machine-z-offset",
-        type=float,
-        default=MACHINE_Z_BOTTOM_OFFSET,
-        help="Offset from machine_center.z to the bottom of the machine box (default: %(default)s).",
+        "--xacro-arg", action="append", default=[], metavar="NAME:=VALUE",
+        help="Xacro argument, repeatable; ignored for URDF input.",
     )
     parser.add_argument(
         "--no-chassis",
@@ -482,12 +564,6 @@ def main():
         metavar=("X", "Y", "Z"),
         help="Chassis slab bounding box size in meters (default: %(default)s).",
     )
-    parser.add_argument(
-        "--no-walls",
-        dest="show_walls",
-        action="store_false",
-        help="Don't draw the room walls (from scanning.sdf).",
-    )
     args = parser.parse_args()
 
     plot_waypoints(
@@ -495,12 +571,11 @@ def main():
         save_file=args.save,
         show_labels=args.labels,
         arrow_scale=args.arrow_scale,
-        machine_size=tuple(args.machine_size),
-        machine_center_xy_offset=tuple(args.machine_center_offset),
-        machine_z_bottom_offset=args.machine_z_offset,
+        structure_model=args.structure_model,
+        structure_pose=tuple(args.structure_pose) if args.structure_pose else None,
+        xacro_args=tuple(args.xacro_arg),
         show_chassis=args.show_chassis,
         chassis_size=tuple(args.chassis_size),
-        show_walls=args.show_walls,
     )
 
 

@@ -19,10 +19,20 @@ struct InspectionViewpoint
   double height{0.0};
 };
 
+struct StructureVisualization
+{
+  std::string model;
+  geometry_msgs::msg::Point origin;
+  double yaw{0.0};
+  std::vector<std::string> xacro_args;
+  bool configured{false};
+};
+
 struct ScanConfig
 {
   std::string global_frame_id{"world"};
   geometry_msgs::msg::Point machine_center;
+  StructureVisualization structure;
 
   double base_height{0.0};
   // Owns the planar (x, y) trajectory shape (circular, or whatever gets
@@ -44,6 +54,7 @@ struct ScanPlan
 {
   std::string frame_id;
   geometry_msgs::msg::Point machine_center;
+  StructureVisualization structure;
   std::vector<ScanWaypoint> waypoints;
 };
 

@@ -136,6 +136,10 @@ void validateConfig(const ScanConfig & config)
   if (config.global_frame_id.empty()) {
     throw std::invalid_argument("global_frame_id cannot be empty");
   }
+  if (config.global_frame_id != "robot_map") {
+    throw std::invalid_argument(
+      "Scanning navigation requires machine.frame_id to be 'robot_map'");
+  }
   if (!config.pattern) {
     throw std::invalid_argument("A scan pattern must be configured");
   }
@@ -153,6 +157,7 @@ ScanPlan ScanPlanGenerator::generateInspectionPath(const ScanConfig & config) co
   ScanPlan plan;
   plan.frame_id = config.global_frame_id;
   plan.machine_center = config.machine_center;
+  plan.structure = config.structure;
 
   const auto points = config.pattern->generatePoints(config.machine_center);
   plan.waypoints.reserve(points.size() * config.inspection_viewpoints.size());
@@ -187,9 +192,13 @@ ScanPlan ScanPlanGenerator::generateInspectionPath(const ScanConfig & config) co
       waypoint.end_effector_pose.pose.position.x = point.end_effector_x;
       waypoint.end_effector_pose.pose.position.y = point.end_effector_y;
       waypoint.end_effector_pose.pose.position.z = viewpoint.height;
+
+      // Each band observes the structure horizontally at its own height.
+      geometry_msgs::msg::Point target = config.machine_center;
+      target.z = viewpoint.height;
       waypoint.end_effector_pose.pose.orientation = lookAtQuaternion(
         waypoint.end_effector_pose.pose.position,
-        config.machine_center);
+        target);
 
       plan.waypoints.emplace_back(std::move(waypoint));
     }

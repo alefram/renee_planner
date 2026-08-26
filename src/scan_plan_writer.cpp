@@ -48,6 +48,23 @@ void ScanPlanWriter::writeYamlFile(const ScanPlan & plan, const std::string & ou
   machine_center.push_back(plan.machine_center.z);
   root["machine_center"] = machine_center;
 
+  if (plan.structure.configured) {
+    YAML::Node structure;
+    structure["model"] = plan.structure.model;
+    YAML::Node origin_pose;
+    origin_pose.push_back(plan.structure.origin.x);
+    origin_pose.push_back(plan.structure.origin.y);
+    origin_pose.push_back(plan.structure.origin.z);
+    origin_pose.push_back(plan.structure.yaw);
+    structure["origin_pose"] = origin_pose;
+    YAML::Node xacro_args;
+    for (const auto & argument : plan.structure.xacro_args) {
+      xacro_args.push_back(argument);
+    }
+    structure["xacro_args"] = xacro_args;
+    root["structure"] = structure;
+  }
+
   YAML::Node waypoints;
   for (const auto & waypoint : plan.waypoints) {
     YAML::Node waypoint_node;

@@ -8,24 +8,31 @@ machine:
   # around the actual machine instead of skewed toward one side of it.
   center: [-2.7352, -3.4334, 1.3906]
 
+# Geometry metadata copied into every generated plan. The plot uses this by
+# default, so its invocation does not need to repeat model-path or pose data.
+structure:
+  model: /fnh_pkgs/src/renee_simulation/campetella_sim/models/campetella_CRC/urdf/campetella.urdf.xacro
+  # campetella_base_link in robot_map: world spawn (1.0, 0.0, 0.8) minus
+  # world->robot_map (3, 3, 0). This pose is visualization metadata.
+  origin_pose: [-2.0, -3.0, 0.8, 0.0]
+  xacro_args:
+    - robot_scale:=0.001
+    - mode:=navigation
+
 scan:
-  # The machine is long and narrow (4.22 x 1.56 m), so a tight ring corner-cuts
-  # through it between consecutive points. 8 points per ring keeps the path
-  # closer to the true circle (and gives Nav2 more intermediate waypoints to
-  # curve around the machine, same reasoning as the 2->4 fix earlier).
-  points_per_ring: 8
-  # UR5e shoulder sits ~0.52 m above ground (wheel_radius 0.11 + chassis_link
-  # offset 0.1775 + arm mount 0.235). Heights below that force the wrist to
-  # bend down and back to look at the target, clipping the wrist-camera
-  # bracket against the forearm. Keeping heights at/above shoulder height
-  # keeps the wrist in a much more comfortable, collision-free configuration.
-  heights: [0.7, 1.0, 1.3]
+  pattern_type: circular
+  # Smoke-test profile: one station on the short side of the structure. Once
+  # navigation, Pilz motion and RGB-D capture work together, change this to 8.
+  points_per_ring: 1
+  start_angle_deg: 90.0
+  # One horizontal height band for the first integrated test. Additional bands
+  # remain supported by adding values, e.g. [0.7, 0.9, 1.1].
+  heights: [0.9]
   # Machine's long half-axis is 2.11 m (4.2206/2) and the nearest wall (south,
   # y=-7 in robot_map) is 3.57 m from the new center, so base_radius=3.0 clears
   # the machine (+0.9 m margin) while staying 0.57 m short of that wall.
   base_radius: 3.0
   base_height: 0.0
-  # Keeps the same ~0.7 m base-to-arm-target standoff that was verified
-  # collision-free earlier (base_radius - end_effector_radius = 0.7).
-  end_effector_radius: 2.3
-  start_angle_deg: 0.0
+  # The arm target is 0.4 m inward from the rover center. At z=0.9 m this is a
+  # conservative first pose for the UR5e mounted about 0.544 m above ground.
+  end_effector_radius: 2.6

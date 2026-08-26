@@ -44,6 +44,22 @@ T requireScalar(const YAML::Node & node, const std::string & field_name)
   return node.as<T>();
 }
 
+std::vector<std::string> parseStringList(const YAML::Node & node, const std::string & field_name)
+{
+  if (!node) {
+    return {};
+  }
+  if (!node.IsSequence()) {
+    throw std::invalid_argument(field_name + " must be a sequence");
+  }
+  std::vector<std::string> values;
+  values.reserve(node.size());
+  for (const auto & value : node) {
+    values.push_back(value.as<std::string>());
+  }
+  return values;
+}
+
 std::vector<double> parseHeights(const YAML::Node & node)
 {
   if (!node || !node.IsSequence() || node.size() == 0) {
@@ -97,6 +113,7 @@ ScanConfig ScanConfigLoader::loadFromYamlFile(const std::string & config_file) c
   const YAML::Node root = YAML::LoadFile(config_file);
   const YAML::Node machine = root["machine"];
   const YAML::Node scan = root["scan"];
+  const YAML::Node structure = root["structure"];
 
   if (!machine) {
     throw std::invalid_argument("Missing required 'machine' section");
@@ -109,6 +126,19 @@ ScanConfig ScanConfigLoader::loadFromYamlFile(const std::string & config_file) c
   config.global_frame_id = machine["frame_id"] ?
     machine["frame_id"].as<std::string>() : std::string("world");
   config.machine_center = parsePoint3(machine["center"], "machine.center");
+  if (structure) {
+    config.structure.model = requireScalar<std::string>(structure["model"], "structure.model");
+    const YAML::Node origin_pose = structure["origin_pose"];
+    if (!origin_pose || !origin_pose.IsSequence() || origin_pose.size() != 4) {
+      throw std::invalid_argument("structure.origin_pose must be a 4-value sequence [x, y, z, yaw]");
+    }
+    config.structure.origin.x = origin_pose[0].as<double>();
+    config.structure.origin.y = origin_pose[1].as<double>();
+    config.structure.origin.z = origin_pose[2].as<double>();
+    config.structure.yaw = origin_pose[3].as<double>();
+    config.structure.xacro_args = parseStringList(structure["xacro_args"], "structure.xacro_args");
+    config.structure.configured = true;
+  }
   config.base_height = scan["base_height"] ? scan["base_height"].as<double>() : 0.0;
   config.pattern = parsePattern(scan);
 
