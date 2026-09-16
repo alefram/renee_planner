@@ -1,0 +1,12 @@
+# Tested Python 3.12 wheels. Install in a venv, not in system Python.
+numpy>=2.2,<2.4
+scipy>=1.15,<2
+osqp>=1,<2
+pin==3.9.0
+# Pinocchio 3.9 wheels require urdfdom ABI 4, not the latest ABI 6.
+cmeel-urdfdom>=4,<5
+cmeel-tinyxml2>=10,<11
+trimesh>=4,<5
+rtree>=1,<2
+PyYAML>=6
+Pillow>=10

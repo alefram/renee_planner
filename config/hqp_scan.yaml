@@ -1,0 +1,63 @@
+# Static snapshot; metres and radians unless a parameter explicitly says deg.
+# Map and model pose MUST describe the same scene before planning.
+frame_id: robot_map
+structure:
+  model: package://campetella_sim/models/campetella_CRC/urdf/campetella.urdf.xacro
+  pose: [-2.0, -3.0, 0.8, 0.0, 0.0, 0.0]  # ROOT x y z roll pitch yaw, not centre.
+  xacro_args: [robot_scale:=0.001, mode:=navigation]
+robot:
+  urdf: package://robotnik_description/robots/rbvogui/rbvogui_plus.urdf.xacro
+  srdf: package://renee_rbvogui_plus_moveit_config/config/rbvogui_plus.srdf
+  xacro_args: [ur_type:=ur5e, wrist_camera:=realsense_d435i, gazebo_ignition:=false]
+  base_frame: robot_base_footprint
+  camera_frame: robot_arm_rgbd_camera_color_optical_frame
+  joint_names:
+    - robot_arm_shoulder_pan_joint
+    - robot_arm_shoulder_lift_joint
+    - robot_arm_elbow_joint
+    - robot_arm_wrist_1_joint
+    - robot_arm_wrist_2_joint
+    - robot_arm_wrist_3_joint
+  initial_positions: [-1.57, -1.57, 0.0, -1.57, 0.0, 0.0]
+  other_joint_positions: {}  # Other joints remain at neutral unless provided.
+  position_limits: {}       # Optional tighter per-joint min/max_position limits.
+map:
+  # Source-tree example. Set an existing path when copying/installing this YAML.
+  yaml: ../../maps/real_robot_environment.yaml
+  footprint: [[0.6, -0.35], [0.6, 0.35], [-0.6, 0.35], [-0.6, -0.35]]
+  footprint_margin_m: 0.02
+scan:
+  depth_min_m: 0.70       # HARD: optical centre to actual surface target.
+  depth_target_m: 0.85    # SOFT: preferred depth, never overrides hard bounds.
+  depth_max_m: 1.00
+  pointing_tolerance_deg: 1.0
+  heights_from_bottom_m: [0.5, 0.9]  # From structure envelope bottom.
+  samples_per_face: 4
+stations:
+  nominal_spacing_deg: 30.0
+  max_spacing_deg: 40.0  # Includes wraparound. Larger gaps mean partial coverage.
+  candidate_spacing_deg: 15.0
+  orientation: face_normal
+  fixed_during_scan: true
+  surface_offsets_m: [1.2, 1.5, 1.8]  # BASE centre to envelope, not camera depth.
+  lateral_offsets_m: [0.0, -0.15, 0.15]
+  view_window_deg: 25.0
+  max_candidates: 216   # Bounded search, not a proof of global feasibility.
+collision:
+  clearance_m: 0.02
+  unknown_map_cells_are_obstacles: true
+  map_obstacle_height_m: 3.0  # Conservative columns from map z=0; above robot.
+tasks:
+  priority_order: [observation, smoothness, reference]
+solver:
+  constraint_tolerance: 1.0e-6
+  qp_max_iterations: 10000
+  max_iterations: 40
+  trust_region_rad: 0.15
+  finite_difference_step: 1.0e-5
+  step_tolerance_rad: 1.0e-5
+  line_search_steps: 12
+  ik_attempts: 4
+  validation_step_rad: 0.02  # Discrete validation, not continuous certification.
+  max_refinements: 2
+  max_samples_per_tract: 80  # Bound refinement memory; excess returns a failure.
