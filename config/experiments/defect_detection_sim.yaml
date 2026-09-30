@@ -1,0 +1,274 @@
+# Defect detection mission: camera pose targets around the Campetella.
+# Per target: the base pose is chosen on the boat-like loop (Nav2 FollowPath,
+# a sideways approach only when needed, never closer than min_clearance_m to
+# the machine) and MoveIt moves the arm. No HQP. Image capture is not part of
+# this version (capture.enabled: false).
+# Runs in the `scanning` docker-compose service (walls 0.5 m from the lanes,
+# H-shaped map maps/scanning_map.yaml, posegraph maps/scanning_map.posegraph,
+# default Nav2 config).
+# Run with: ros2 launch renee_trajectory_generation trajectory_controller.launch.py experiment:=defect_detection_sim
+
+# =============================================================================
+# 1. EXPERIMENT: name, description and node parameters (sim or real robot interfaces)
+# =============================================================================
+experiment:
+  name: defect_detection_sim
+  # What the run does: cleaning (nozzle path targets), screw_detection
+  # (camera path targets + captures) or defect_detection (camera pose
+  # targets); see renee_trajectory_generation/missions/defect_detection.py.
+  mission: defect_detection
+  description: >-
+    Defect detection around the Campetella in the `scanning` compose service: Nav2 drives the base
+    along the generated boat-like loop, MoveIt places the camera at each pose.
+  # trajectory_controller_node ROS parameters for this run: the interfaces of the
+  # simulated (Gazebo) or real robot. Real robot (vogui_ros1_ros2_bridge +
+  # ur_robot_driver with tf_prefix robot_arm_): use_sim_time false,
+  # cmd_vel_topic /robot/docker/cmd_vel (a twist_mux input the bridge
+  # relays), cmd_vel_stamped false, joint_trajectory_topic
+  # /robot/scaled_joint_trajectory_controller/joint_trajectory.
+  node_parameters:
+    use_sim_time: true
+    control_rate_hz: 100.0
+    ee_frame: robot_arm_tool0
+    cmd_vel_topic: /robot/robotnik_base_control/cmd_vel
+    cmd_vel_stamped: true   # ros2_control base controller takes TwistStamped
+    base_frame_id: robot_base_footprint
+    joint_trajectory_topic: /robot/joint_trajectory_controller/joint_trajectory
+    joint_states_topic: /robot/joint_states
+    odom_topic: /robot/robotnik_base_control/odom
+    startup_timeout_s: 30.0
+    trajectory_horizon_factor: 2.0  # time_from_start = factor * dt, margin against jitter
+    equality_tolerance: 1.0e-4
+    osqp_eps_abs: 1.0e-5
+    osqp_eps_rel: 1.0e-5
+    osqp_max_iter: 4000
+    osqp_polish: true
+
+# =============================================================================
+# 2. ROBOT AND FRAMES: wrist camera, tool frames and the frame of the targets
+# =============================================================================
+# Wrist camera in the robot model; must match the simulated/real robot so the
+# camera optical frame exists (none | realsense_d435i | stereolabs_zed2i).
+wrist_camera: stereolabs_zed2i
+
+# Frame of the targets, base loop and collision objects (the SLAM map).
+targets_frame: robot_map
+
+# Short names for the frames targets use.
+frames:
+  camera: robot_arm_rgbd_camera_left_camera_optical_frame
+
+# =============================================================================
+# 3. MOVEIT: planning scene, IK and arm motions (travel posture)
+# =============================================================================
+# MoveIt validation and motions (move_group under `namespace`). For each
+# target, compute_ik finds a collision-free arm configuration from each base
+# candidate (navigation.base_candidates) and, once the base is there, from its
+# real pose; MoveIt moves the arm there (Pilz PTP, collision-checked).
+# `collision_objects` are boxes added to the planning scene at startup.
+moveit:
+  namespace: /robot
+  group: arm
+  ik_roll_samples: 12           # only used when camera_view roll is null
+  planning_pipeline: pilz_industrial_motion_planner   # travel + approach motions
+  planner_id: PTP
+  # If a Pilz PTP motion fails (its straight joint-space path is not
+  # collision-free), the same joint goal is retried once with OMPL.
+  fallback_pipeline: ompl
+  fallback_planner_id: RRTConnectkConfigDefault
+  velocity_scaling: 0.3
+  # Per-joint goal tolerance of the MoveIt motions (rad): OMPL (the fallback
+  # when Pilz fails) may end anywhere within it; 0.01 put the camera 4 cm off
+  # its target (run 20260929_095135).
+  joint_goal_tolerance_rad: 0.001
+  # The Campetella's collision boxes are read at startup from its published
+  # model (campetella_sim: one box per part, its URDF `simple` collision = the
+  # part's STL bounding box, plus its 4 cart supports), placed with the TF of
+  # root_frame in targets_frame (campetella.py); margin_m is added on every
+  # side. The node stops if the model or the TF does not arrive (startup_timeout_s).
+  collision_from_description:
+    topic: /campetella_robot_description
+    root_frame: campetella_base_link
+    margin_m: 0.01
+    id_prefix: campetella_
+  # Extra boxes not in that model: {id, frame, box: [sx, sy, sz], position: [x, y, z], yaw}.
+  collision_objects: []
+
+# Arm posture for driving between base stops (and at the end of the run),
+# reached with a collision-free MoveIt motion before the base moves.
+# Order: shoulder_pan, shoulder_lift, elbow, wrist_1, wrist_2, wrist_3 (rad).
+# This is the spawn posture (robots/rbvogui/initial_positions.yaml): the arm
+# folded over the base (elbow 90 deg), inside the base footprint, with the
+# shoulder turned so the wrist and camera face the robot's left, the machine
+# side (counterclockwise loop), the forearm on the other side; collision-free
+# in MoveIt (checked).
+# Travel posture: the shoulder motor towards the front of the base (pan
+# -pi/2), the elbow on the side away from the machine (right), the wrist up
+# (wrist_2 above wrist_1), the arm inside the footprint, and the camera near
+# the base center (1.27 m high) aimed at the machine side: optical axis to the
+# base's left (the machine side of the counterclockwise loop), 12 deg down,
+# image upright. Valid in MoveIt.
+travel_arm_q: [-1.57, -0.9, -1.5, -1.15, 1.57, 0.0]
+# =============================================================================
+# 4. NAVIGATION: Nav2, localization checks and the base loop
+# =============================================================================
+# Navigation robustness ("localize first, then move"): no goal is sent
+# while the localized base is outside `workspace` ([x_min, x_max, y_min,
+# y_max] in robot_map: inside the walls), nor before the localization
+# correction (robot_map <- robot_odom) has stayed within `settle_tolerance`
+# ([m, rad]) for `settle_s`. A correction jump beyond `jump_tolerance` while
+# driving cancels the goal: only catastrophic relocalizations, since the
+# simulated odometry drifts in the in-place turns and SLAM legitimately
+# corrects it by up to ~1 m in one step (Nav2 replans on its own). Failed or
+# cancelled goals are resent `retries` times, `retry_delay_s` apart.
+navigation:
+  # follow_loop: FollowPath along loop_path (boat mode: its lanes and arcs,
+  # renee_trajectory_generation navigation.py) with Nav2's own controller
+  # config; navigate_to_pose: Nav2 plans the path to each stop itself.
+  drive: navigate_to_pose
+  retries: 3
+  retry_delay_s: 5.0
+  workspace: [-6.65, -0.05, -5.8, -0.9]   # inside the scanning walls
+  # The loop is not written by hand: it is the top-view rectangle around the
+  # Campetella's collision boxes grown by d = lane_clearance_m + robot
+  # half width + tracking_margin_m (navigation.loop_from_boxes), corner arcs of
+  # radius min(d, max_radius_m). The node does not start if a loop sample comes
+  # closer than min_clearance_m or the loop (robot half width + wall_margin_m
+  # inside) does not fit `workspace`; it says how many cm are missing.
+  # min_clearance_m: hard limit of the swept 1.2 x 0.7 m footprint to the
+  #   machine, also checked on the real pose while driving (clearance_violation).
+  # lane_clearance_m: footprint-to-machine distance on the lane; the sideways
+  #   approach may only use lane_clearance_m - min_clearance_m (0.10 m).
+  # tracking_margin_m: Nav2's path tracking error (DWB, from the bags).
+  min_clearance_m: 0.10
+  lane_clearance_m: 0.20
+  tracking_margin_m: 0.05
+  max_radius_m: 0.6
+  wall_margin_m: 0.05
+  localization_timeout_s: 60.0
+  settle_s: 3.0
+  # Localize before starting the run: stable localization for
+  # start_settle_s with the base within start_tolerance ([m, rad]) of
+  # start_pose (the spawn on the extraction side, first station).
+  start_pose: [-0.85, -3.3, 1.5708]
+  start_tolerance: [0.3, 0.2]
+  start_settle_s: 5.0
+  settle_tolerance: [0.05, 0.03]
+  jump_tolerance: [1.5, 0.5]
+  # Boat-like base motion: the base follows the generated closed loop with
+  # Nav2's FollowPath: straight lanes and circular arcs at the corners, always
+  # driving forward with the heading along the path (no in-place turns).
+  # Counterclockwise (the machine on the robot's left, left turns only): the
+  # real robot's cabling only allows turning this way.
+  loop_path:
+    spacing: 0.05
+
+# =============================================================================
+# 5. TARGETS: what the camera / tool must reach, in targets_frame
+# =============================================================================
+# Each target is a frame pose: the frame's origin at `position` with its +Z
+# (the camera's optical axis) aimed at `look_at` (0.3-1.5 m apart: the
+# camera's view_distance_m). Only the machine's structure: the
+# low rail along X (x -4.85..-1.68, y -3.27..-2.90, z 0.60-0.87), the tall
+# vertical column on the front side (x ~-2.1, y ~-2.73, z 0.53-2.25) and the
+# extraction axis along Y (x ~-2.0, y -4.21..-2.81, z 0.8-1.15).
+# There are no base poses: targets are done in driving order along the loop
+# (forward only) and, per target, navigation.base_candidates() lists the loop
+# spots near the target's XY projection (+-window_m along the loop, outside the
+# corners), offset 0 first; the first with a MoveIt IK is the stop. A straight
+# sideways shift towards the machine (offsets_m) is only a fallback, bounded by
+# lane_clearance_m - min_clearance_m.
+base_placement:
+  machine_side: left
+  footprint: [1.2, 0.7]             # base [length, width] (m)
+  window_m: 0.8                     # candidates +- this far along the loop from the target's projection
+  offsets_m: [0.05, 0.1]            # fallback sideways offsets, <= lane_clearance_m - min_clearance_m
+  spacing_m: 0.05                   # loop sampling for the candidates
+  # No stop on a corner or within 0.65 m of its end: leaving the arcs
+  # Nav2 is still off the lane and overshoots a stop right after one
+  # (run 20260929_000534).
+  min_straight_before_stop_m: 0.65
+  # Lateral (omnidirectional, lane heading kept) approach and the moves along
+  # the lane: slow, aligned with the lane, stopped if the next step would break
+  # min_clearance_m.
+  approach:
+    max_speed_mps: 0.1
+    max_yaw_rate: 0.1
+    align_tolerance_rad: 0.02
+  # IK seeds for the base candidates (besides travel_arm_q): the arm folded
+  # with the camera towards the machine side (the former travel posture), which
+  # the machine-facing camera poses converge from.
+  seeds:
+    - [1.57, -2.2, 1.57, 0.63, 1.57, 3.14]
+
+# The wrist camera: the optical axis straight at look_at, image upright
+# (roll fixed at 0; null leaves roll free and MoveIt tries ik_roll_samples),
+# within the ZED 2i depth range view_distance_m (checked for every target when
+# the config is loaded). A pose counts as reached when the camera measured
+# through TF is within reach_tolerance_m / reach_tolerance_rad.
+camera_view:
+  roll: 0.0
+  view_distance_m: [0.3, 1.5]
+  reach_tolerance_m: 0.03
+  reach_tolerance_rad: 0.05
+
+# Image capture at every camera pose (not executed by this version of the
+# mission): once the pose is reached the arm is held, and once the base is
+# still the /capture_rgbd action (renee_action_servers) would save frame_count
+# RGB-D keyframes with the robot and camera poses into <run folder>/captures.
+# start_server: the launch file starts the action server with server_params
+# (renee_action_servers/config) and server_overrides on top.
+# ros2 bag of the run into <run folder>/bag (topic names matching `regex`):
+# the base command at each stage (Nav2 controller, smoother, the base
+# controller's input), odometry, the Nav2 plans and FollowPath feedback,
+# the lasers, joint states and TF, to diagnose the base motion.
+record:
+  # Gazebo's true robot pose (world frame = robot_map + (3, 3)) on
+  # /ground_truth/robot_pose (scripts/gz_ground_truth.py), recorded.
+  ground_truth: /world/table_cube_world/dynamic_pose/info
+  regex: "^/(tf|tf_static|clock|ground_truth/robot_pose)$|^/robot/(cmd_vel.*|robotnik_base_control/(cmd_vel|odom)|plan|local_plan|received_global_plan|transformed_global_plan|(front|rear)_laser/scan|joint_states|follow_path/_action/(feedback|status))$"
+
+capture:
+  # false: motion only, no /capture_rgbd (the simulated ZED frames do not
+  # reach the capture server yet: "Timed out waiting for synchronized camera frames").
+  enabled: false
+  action: /capture_rgbd
+  frame_count: 3
+  start_server: true
+  server_params: rgbd_capture_sim.yaml
+  server_overrides:
+    # The simulated ZED renders color, right and depth ~130 ms apart (slow
+    # Gazebo); the robot is still at every capture, so 50 ms is too strict.
+    sync_tolerance_ms: 300.0
+
+# Camera poses authored in web_tf_editor (frames scan_<name>, 2026-09-28;
+# scripts/campetella_scan_viewpoints.py export), kept exactly as edited:
+# position = the frame's origin, look_at = 0.75 m along its optical axis
+# (the aim; for the unedited-aim poses, the original point on the machine).
+# `surface` is the distance along the optical axis to the collision_objects
+# boxes (CAD, 0.02 m margin): 5 of the 13 poses are under 0.5 m from the
+# machine, kept on purpose.
+targets:
+  # --- Front (+Y side) --- Rail, front side, -X to +X.
+  - {name: rail_front_1, frame: camera, position: [-4.4, -2.56, 1.058], look_at: [-4.4, -3.244, 0.75], section: transversal}       # surface 0.60 m
+  - {name: rail_front_2, frame: camera, position: [-3.6, -2.554, 1.058], look_at: [-3.6, -3.238, 0.75], section: transversal}      # surface 0.58 m
+  - {name: rail_front_3, frame: camera, position: [-2.8, -2.529, 1.058], look_at: [-2.8, -3.213, 0.75], section: transversal}      # surface 0.60 m
+  # Vertical column.
+  - {name: column_front, frame: camera, position: [-2.1, -2.205, 1.046], look_at: [-2.1, -2.946, 0.934], section: vertical}     # surface 0.44 m
+  # --- +X end --- Rail's +X end (hits the extraction axis first).
+  - {name: rail_end_pos_x, frame: camera, position: [-1.431, -3.08, 1.195], look_at: [-2.115, -3.08, 0.888], section: transversal}  # surface 0.41 m
+  # Extraction axis, +X side.
+  - {name: extraction_pos_x_1, frame: camera, position: [-1.542, -3.4, 1.186], look_at: [-2.25, -3.4, 0.938], section: extraction}   # surface 0.58 m
+  - {name: extraction_pos_x_2, frame: camera, position: [-1.537, -3.9, 1.225], look_at: [-2.245, -3.9, 0.977], section: extraction}  # surface 0.61 m
+  # --- Rear (-Y side) --- Extraction axis, rear end.
+  - {name: extraction_rear, frame: camera, position: [-2.0, -4.605, 1.073], look_at: [-2.0, -4.21, 0.95], section: extraction}    # surface 0.42 m
+  # Extraction axis, -X side.
+  - {name: extraction_neg_x, frame: camera, position: [-2.803, -3.66, 1.122], look_at: [-2.095, -3.428, 1.032], section: extraction}  # surface 0.60 m
+  # Rail, rear side, +X to -X.
+  - {name: rail_rear_1, frame: camera, position: [-2.8, -3.861, 0.804], look_at: [-2.8, -3.27, 0.75], section: transversal}        # surface 0.36 m
+  - {name: rail_rear_2, frame: camera, position: [-3.6, -3.895, 0.852], look_at: [-3.6, -3.27, 0.75], section: transversal}        # surface 0.40 m
+  # Moved +0.1 m in X from the authored x -4.4: there the base cannot get
+  # closer without its footprint hitting the rail end's rear cart support.
+  - {name: rail_rear_3, frame: camera, position: [-4.3, -3.9, 0.961], look_at: [-4.3, -3.154, 0.888], section: transversal}        # surface: no hit
+  # --- -X end --- Rail end.
+  - {name: rail_end_neg_x, frame: camera, position: [-5.384, -3.08, 1.058], look_at: [-4.85, -3.08, 0.75], section: transversal}   # surface 0.60 m

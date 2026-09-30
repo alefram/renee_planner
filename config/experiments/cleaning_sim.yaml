@@ -1,0 +1,280 @@
+# Cleaning experiment: two continuous non-contact passes along the
+# Campetella's long transversal rail (x -4.85..-1.68, y -3.27..-2.90, top z
+# ~0.87 in robot_map), going and coming back, in the `scanning` docker-compose
+# service. The base stop for
+# the pass start is planned automatically (navigation.BasePlanner): Nav2
+# drives the loop there (forward only), the base shifts sideways towards the
+# machine in a straight line if the arm cannot reach from the lane
+# (omnidirectional only for this approach), MoveIt brings the nozzle to the
+# path start, and then the base drives along the lane, forward or in reverse
+# (no sideways velocity, no turning) while the HQP keeps the nozzle on the
+# line. Afterwards the arm is stowed (and a shifted base goes back onto the
+# lane). The arm stays fixed during each pass (arm_fixed): MoveIt sets the
+# nozzle pose at the path start and only the base carries it along the rail.
+# Run with: ros2 launch renee_trajectory_generation trajectory_controller.launch.py experiment:=cleaning_sim
+
+# =============================================================================
+# 1. EXPERIMENT: name, description and node parameters (sim or real robot interfaces)
+# =============================================================================
+experiment:
+  name: cleaning_sim
+  # What the run does: cleaning (nozzle path targets), screw_detection
+  # (camera path targets + captures) or defect_detection (camera pose
+  # targets + captures); see renee_trajectory_generation/missions/cleaning.py.
+  mission: cleaning
+  description: >-
+    Non-contact cleaning pass over the Campetella's transversal beam in the `scanning` compose service.
+  # trajectory_controller_node ROS parameters for this run: the interfaces of the
+  # simulated (Gazebo) or real robot. Real robot (vogui_ros1_ros2_bridge +
+  # ur_robot_driver with tf_prefix robot_arm_): use_sim_time false,
+  # cmd_vel_topic /robot/docker/cmd_vel (a twist_mux input the bridge
+  # relays), cmd_vel_stamped false, joint_trajectory_topic
+  # /robot/scaled_joint_trajectory_controller/joint_trajectory.
+  node_parameters:
+    use_sim_time: true
+    control_rate_hz: 100.0
+    ee_frame: robot_arm_tool0
+    cmd_vel_topic: /robot/robotnik_base_control/cmd_vel
+    cmd_vel_stamped: true   # ros2_control base controller takes TwistStamped
+    base_frame_id: robot_base_footprint
+    joint_trajectory_topic: /robot/joint_trajectory_controller/joint_trajectory
+    joint_states_topic: /robot/joint_states
+    odom_topic: /robot/robotnik_base_control/odom
+    startup_timeout_s: 30.0
+    trajectory_horizon_factor: 2.0  # time_from_start = factor * dt, margin against jitter
+    equality_tolerance: 1.0e-4
+    osqp_eps_abs: 1.0e-5
+    osqp_eps_rel: 1.0e-5
+    osqp_max_iter: 4000
+    osqp_polish: true
+
+# =============================================================================
+# 2. ROBOT AND FRAMES: wrist camera, tool frames and the frame of the targets
+# =============================================================================
+# Wrist camera in the robot model; must match the simulated/real robot so the
+# camera optical frame exists (none | realsense_d435i | stereolabs_zed2i).
+wrist_camera: stereolabs_zed2i
+
+# Virtual nozzle tip, rigidly attached to the arm flange: `offset` (m) along
+# tool0's axes; its +Z (tool0's +Z, out of the flange) is the spray axis.
+nozzle:
+  frame: nozzle_tip
+  parent: robot_arm_tool0
+  offset: [0.0, 0.0, 0.15]
+
+# Frame of the targets, base loop and collision objects (the SLAM map).
+targets_frame: robot_map
+
+# Short names for the frames targets use.
+frames:
+  nozzle: nozzle_tip
+
+# =============================================================================
+# 3. MOVEIT: planning scene, IK and arm motions (travel posture)
+# =============================================================================
+# MoveIt validation and motions (move_group under `namespace`), shared with
+# the camera-pose config (defect_detection_sim.yaml): compute_ik and the MoveIt motions to
+# the path start, and check_state_validity on each HQP arm command at
+# `validity_rate_hz` during the pass.
+# `collision_objects` are boxes added to the planning scene at startup.
+moveit:
+  namespace: /robot
+  group: arm
+  ik_roll_samples: 12           # rolls tried about the nozzle axis (roll is free)
+  planning_pipeline: pilz_industrial_motion_planner   # travel + approach motions
+  planner_id: PTP
+  # If a Pilz PTP motion fails (its straight joint-space path is not
+  # collision-free), the same joint goal is retried once with OMPL.
+  fallback_pipeline: ompl
+  fallback_planner_id: RRTConnectkConfigDefault
+  velocity_scaling: 0.3
+  validity_rate_hz: 20
+  # The Campetella's collision boxes are read at startup from its published
+  # model (campetella_sim: one box per part, its URDF `simple` collision = the
+  # part's STL bounding box, plus its 4 cart supports), placed with the TF of
+  # root_frame in targets_frame (campetella.py); margin_m is added on every
+  # side. The node stops if the model or the TF does not arrive (startup_timeout_s).
+  collision_from_description:
+    topic: /campetella_robot_description
+    root_frame: campetella_base_link
+    margin_m: 0.05
+    id_prefix: campetella_
+  # Extra boxes not in that model: {id, frame, box: [sx, sy, sz], position: [x, y, z], yaw}.
+  collision_objects: []
+
+# The base parks at each station with Nav2 (map collisions handled by its
+# costmaps); then only the arm moves to each scan pose. Poses with no
+# collision-free arm configuration from the station are skipped and
+# reported as unreachable_ik. Everything is in camera_view's targets_frame.
+# Arm posture for driving between stations (and at the end of the run),
+# reached with a collision-free MoveIt motion before each Nav2 goal.
+# Order: shoulder_pan, shoulder_lift, elbow, wrist_1, wrist_2, wrist_3 (rad).
+# This is the spawn posture (robots/rbvogui/initial_positions.yaml): the arm
+# folded over the base (elbow 90 deg), inside the base footprint, with the
+# shoulder turned so the wrist and camera face the robot's left, the machine
+# side (counterclockwise loop), the forearm on the other side; collision-free
+# in MoveIt (checked).
+travel_arm_q: [1.57, -2.2, 1.57, 0.63, 1.57, 3.14]
+
+# =============================================================================
+# 4. NAVIGATION: Nav2, localization checks and the base loop
+# =============================================================================
+# Navigation robustness ("localize first, then move"): no goal is sent
+# while the localized base is outside `workspace` ([x_min, x_max, y_min,
+# y_max] in robot_map: inside the walls), nor before the localization
+# correction (robot_map <- robot_odom) has stayed within `settle_tolerance`
+# ([m, rad]) for `settle_s`. A correction jump beyond `jump_tolerance` while
+# driving cancels the goal: only catastrophic relocalizations, since the
+# simulated odometry drifts in the in-place turns and SLAM legitimately
+# corrects it by up to ~1 m in one step (Nav2 replans on its own). Failed or
+# cancelled goals are resent `retries` times, `retry_delay_s` apart.
+navigation:
+  retries: 3
+  retry_delay_s: 5.0
+  workspace: [-6.65, -0.05, -5.8, -0.9]   # inside the scanning walls
+  localization_timeout_s: 60.0
+  settle_s: 3.0
+  # Localize before starting the run: stable localization for
+  # start_settle_s with the base within start_tolerance ([m, rad]) of
+  # start_pose (the spawn on the extraction side, first station).
+  start_pose: [-0.85, -3.3, 1.5708]
+  start_tolerance: [0.3, 0.2]
+  start_settle_s: 5.0
+  settle_tolerance: [0.05, 0.03]
+  jump_tolerance: [1.5, 0.5]
+  # Along the front lane the lidar sees little more than two parallel walls
+  # (the rail is above its plane): moving slowly there (passes, sideways
+  # shifts, backing up to a stop) SLAM's scan matching slid 2.5-2.9 m along
+  # it. Pause its new measurements while working at a stop (odometry alone
+  # is accurate over that work) and resume for every Nav2 drive
+  # (slam_toolbox pause_new_measurements).
+  pause_localization_at_stops: true
+  # Boat-like base motion: the base follows this closed loop with Nav2's
+  # FollowPath: straight lanes between the lane intersections (driving
+  # order, robot_map) and circular arcs of `radius` at the corners, always
+  # driving forward with the heading along the path (no in-place turns).
+  # Counterclockwise (the machine on the robot's left, left turns only): the
+  # real robot's cabling only allows turning this way.
+  # The swept 1.2 x 0.7 m footprint keeps >= 0.29 m from the Campetella,
+  # its supports and the walls along the whole loop. Stations lie on it.
+  loop_path:
+    corners: [[-0.85, -1.7], [-5.85, -1.7], [-5.85, -5.0], [-0.85, -5.0]]
+    radius: 0.4   # leaves >= 0.65 m of straight lane before every station
+    # The forward pass ends past the return pass's stop (the base follows
+    # the nozzle to the rail's -X end): work from there instead of a lap.
+    max_overshoot_m: 1.0
+
+# =============================================================================
+# 5. TARGETS: what the camera / tool must reach, in targets_frame
+# =============================================================================
+# Path targets: the nozzle aims at the straight line start -> end (on the
+# surface) from the target's standoff_m / tilt_deg (line_path task), while
+# the base drives along its lane with no sideways velocity and no turning.
+# The whole long transversal rail (x -4.85..-1.68, top z 0.87, front face
+# y -2.90) is bordered from the front lane in two passes, each with the arm
+# in one fixed configuration (arm_fixed: MoveIt sets the nozzle pose at the
+# path start, then the arm joints are locked and only the base, driving its
+# lane parallel to the rail, moves the nozzle along it):
+#   1. forward (driving -X, counterclockwise loop): 45 deg from above,
+#      0.60 m from the top face's front edge (y -2.95), the base 0.20 m off
+#      the lane (the arm reaches no line nearer the centerline at 45 deg
+#      from this side, at any distance 0.5-0.8 m);
+#   2. back in reverse (the base backs up towards +X without turning):
+#      horizontal, perpendicular to the front face, 0.80 m from it.
+# Both end before the vertical column (x -2.22..-1.85), which stands between
+# the lane and the rail at its +X end. There are no base poses: at startup
+# navigation.BasePlanner places the base stop for each path start on
+# navigation.loop_path (a sideways shift towards the machine, offsets_m, only
+# if no spot on the loop reaches it).
+base_placement:
+  machine_side: left
+  offsets_m: [0.0, 0.1, 0.2, 0.3]   # tried in order; <= the base task's max_offset_m
+  spacing_m: 0.05                   # loop sampling for the search
+
+targets:
+  # 1. Top face (front edge), 45 deg from above, going (base forward).
+  - name: rail_top_45
+    frame: nozzle
+    path: {start: [-2.60, -2.95, 0.87], end: [-4.80, -2.95, 0.87]}
+    tilt_deg: 45.0
+    standoff_m: 0.60
+    arm_fixed: true
+  # 2. Front face, perpendicular, coming back (base in reverse).
+  - name: rail_front_face_back
+    frame: nozzle
+    path: {start: [-4.80, -2.90, 0.735], end: [-2.45, -2.90, 0.735]}
+    tilt_deg: 0.0
+    standoff_m: 0.80
+    reverse: true
+    arm_fixed: true
+
+# =============================================================================
+# 6. HQP TASKS: priority levels solved each control cycle, highest first
+# =============================================================================
+# Priority levels for the whole-body HQP cascade, ordered highest priority first.
+levels:
+  - name: hard_limits
+    tasks:
+      - type: joint_limits
+        joints:
+          - robot_arm_shoulder_pan_joint
+          - robot_arm_shoulder_lift_joint
+          - robot_arm_elbow_joint
+          - robot_arm_wrist_1_joint
+          - robot_arm_wrist_2_joint
+          - robot_arm_wrist_3_joint
+        margin_rad: 0.02
+      # Base: locked except for (a) the straight sideways approach towards the
+      # machine and back (node-driven, <= max_offset_m, max_speed), and (b)
+      # the pass, where it only drives forward along the lane (vy = 0, vx in
+      # [min_forward_speed, max_forward_speed]) with its heading held on the
+      # lane (slow correction <= max_yaw_rate).
+      - type: base_lane
+        side: left
+        max_offset_m: 0.3
+        max_speed: 0.05
+        max_forward_speed: 0.1
+        min_forward_speed: 0.0
+        max_yaw_rate: 0.1
+        align_tolerance_rad: 0.02
+        static_speed: 0.01
+        static_time_s: 0.5
+
+  - name: nozzle_tracking
+    tasks:
+      # Nozzle tip at standoff_m from the aim line, tilted tilt_deg above the
+      # horizontal towards the robot, aimed at the line (roll free), moving
+      # at `speed` along it (ramp_s ramps); the path waits while the error
+      # grows (stops at slow_error_m). min_clearance_m: hard floor above the
+      # line.
+      - type: line_path
+        frame: nozzle_tip
+        standoff_m: 0.2
+        tilt_deg: 45.0
+        speed: 0.05
+        ramp_s: 3.0
+        slow_error_m: 0.05
+        min_clearance_m: 0.08
+        position_gain: 2.0
+        aim_gain: 2.0
+        weight: 1.0
+
+  - name: posture_and_base_regularization
+    tasks:
+      # preferred_q_rad is replaced by the arm configuration at the path
+      # start, so the base (not the arm) carries the long motion along the
+      # lane and the arm only corrects.
+      - type: posture
+        joints:
+          - robot_arm_shoulder_pan_joint
+          - robot_arm_shoulder_lift_joint
+          - robot_arm_elbow_joint
+          - robot_arm_wrist_1_joint
+          - robot_arm_wrist_2_joint
+          - robot_arm_wrist_3_joint
+        preferred_q_rad: [1.57, -2.2, 1.57, 0.63, 1.57, 3.14]
+        gain: 1.0
+        weight: 1.0
+      - type: base_velocity
+        preferred_twist: [0.0, 0.0, 0.0]
+        weight: 0.01

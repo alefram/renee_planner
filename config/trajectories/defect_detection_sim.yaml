@@ -1,0 +1,61 @@
+experiment: defect_detection_sim
+mission: defect_detection
+run: '20260930_105511'
+frame: robot_map
+joints: [robot_arm_shoulder_pan_joint, robot_arm_shoulder_lift_joint, robot_arm_elbow_joint,
+  robot_arm_wrist_1_joint, robot_arm_wrist_2_joint, robot_arm_wrist_3_joint]
+targets:
+- target: extraction_pos_x_2
+  status: reached
+  detail: ''
+  base_map: [-1.0623, -3.6111, 1.5806]
+  lane_offset_m: 0.0
+  arm_q: [-4.3823, -1.3368, 0.9394, -2.1819, 4.4215, 0.1797]
+- target: extraction_pos_x_1
+  status: reached
+  detail: ''
+  base_map: [-1.0568, -3.4721, 1.5537]
+  lane_offset_m: 0.0
+  arm_q: [-1.3985, -1.5846, -1.2987, -0.7997, 1.4375, 0.0805]
+- target: rail_end_pos_x
+  status: reached
+  detail: ''
+  base_map: [-1.0527, -3.1777, 1.5583]
+  lane_offset_m: 0.0
+  arm_q: [-1.4338, -1.3622, -1.4541, -0.95, 1.4697, 0.0735]
+- target: column_front
+  status: clearance_violation
+  detail: base at (-2.37, -1.76) under 0.1 m from the machine while driving
+  base_map: [-2.3717, -1.7587, -2.1044]
+  lane_offset_m: 0.084
+  arm_q: [-1.57, -0.9, -1.5, -1.15, 1.57, -0.0]
+- target: rail_front_3
+  status: clearance_violation
+  detail: base at (-2.37, -1.76) under 0.1 m from the machine while driving
+  base_map: [-2.3736, -1.7621, -2.0867]
+  lane_offset_m: 0.081
+  arm_q: [-1.57, -0.9, -1.5, -1.15, 1.57, 0.0]
+- target: rail_front_2
+  status: reached
+  detail: ''
+  base_map: [-3.5164, -1.8474, 3.1221]
+  lane_offset_m: 0.0
+  arm_q: [-1.4667, -2.1375, -0.8876, -0.7405, 1.5021, 0.0502]
+- target: rail_front_1
+  status: reached
+  detail: ''
+  base_map: [-4.3137, -1.8292, 3.1254]
+  lane_offset_m: 0.0
+  arm_q: [-1.4768, -2.2156, -0.7609, -0.7888, 1.5075, 0.0463]
+- target: rail_end_neg_x
+  status: nav_failed
+  detail: Nav2 status 6
+  base_map: [-5.7231, -3.1936, -0.2172]
+  lane_offset_m: 0.0
+  arm_q: [-1.57, -0.9, -1.5, -1.15, 1.57, 0.0]
+- target: rail_rear_3
+  status: clearance_violation
+  detail: base at (-5.63, -3.22) under 0.1 m from the machine while driving
+  base_map: [-5.6259, -3.2177, -0.279]
+  lane_offset_m: 0.081
+  arm_q: [-1.57, -0.9, -1.5, -1.15, 1.57, 0.0]

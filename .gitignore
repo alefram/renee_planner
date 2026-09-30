@@ -1,0 +1,6 @@
+# Run outputs (videos, plots, logs): kept locally, not versioned.
+data/
+
+# Python bytecode.
+__pycache__/
+*.pyc

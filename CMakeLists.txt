@@ -8,11 +8,12 @@ ament_python_install_package(${PROJECT_NAME})
 
 install(DIRECTORY
   config
+  launch
   DESTINATION share/${PROJECT_NAME}
 )
 
 install(PROGRAMS
-  scripts/hqp_scan_optimizer.py
+  src/trajectory_controller_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

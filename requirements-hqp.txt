@@ -6,7 +6,6 @@ pin==3.9.0
 # Pinocchio 3.9 wheels require urdfdom ABI 4, not the latest ABI 6.
 cmeel-urdfdom>=4,<5
 cmeel-tinyxml2>=10,<11
-trimesh>=4,<5
-rtree>=1,<2
 PyYAML>=6
-Pillow>=10
+# Only for scripts/plot_run.py (the missions do not plot).
+matplotlib>=3.8,<4
