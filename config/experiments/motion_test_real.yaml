@@ -1,0 +1,147 @@
+# Whole-robot motion test on the real robot and the real map: the
+# defect_detection mission (Nav2 drives the base on the boat-like loop around
+# the Campetella, MoveIt places the frame) with the pointer_tester tip as the
+# target frame. There is no Campetella in the lab: its CAD is published as a
+# reference only (campetella_sim spawn_campetella.launch.py gazebo:=false,
+# parent_frame:=robot_map) at a pose chosen by hand on a free area of the map,
+# and the targets are given relative to it (targets_origin), so they follow
+# wherever the reference is placed. See the README ("Real robot: motion test").
+# Run with: ros2 launch renee_trajectory_generation trajectory_controller.launch.py experiment:=motion_test_real
+
+# =============================================================================
+# 1. EXPERIMENT: name, description and node parameters (sim or real robot interfaces)
+# =============================================================================
+experiment:
+  name: motion_test_real
+  mission: defect_detection
+  description: >-
+    Real robot, real map: Nav2 drives the base around the Campetella's CAD reference, MoveIt
+    aims the pointer_tester tip at three points of the front rail.
+  # Real robot: vogui_ros1_ros2_bridge (base) + ur_robot_driver (arm, root
+  # namespace, tf_prefix robot_arm_). /robot/move_base/cmd_vel is the only
+  # base cmd_vel the bridge relays into the robot's twist_mux (plain Twist).
+  node_parameters:
+    use_sim_time: false
+    control_rate_hz: 100.0
+    ee_frame: robot_arm_tool0
+    cmd_vel_topic: /robot/move_base/cmd_vel
+    cmd_vel_stamped: false
+    base_frame_id: robot_base_footprint
+    joint_trajectory_topic: /scaled_joint_trajectory_controller/joint_trajectory
+    joint_states_topic: /joint_states
+    odom_topic: /robot/robotnik_base_control/odom
+    startup_timeout_s: 60.0
+    trajectory_horizon_factor: 2.0
+    equality_tolerance: 1.0e-4
+    osqp_eps_abs: 1.0e-5
+    osqp_eps_rel: 1.0e-5
+    osqp_max_iter: 4000
+    osqp_polish: true
+
+# =============================================================================
+# 2. ROBOT AND FRAMES: wrist camera, tool frames and the frame of the targets
+# =============================================================================
+wrist_camera: stereolabs_zed2i
+
+targets_frame: robot_map
+# The targets below are relative to the Campetella's root frame (published
+# by spawn_campetella.launch.py at the pose given there); the node moves them
+# to targets_frame at startup.
+targets_origin: campetella_base_link
+
+frames:
+  # bringup_actions real_robot:=true end_effector:=pointer_tester (default).
+  pointer: robot_arm_pointer_tester_tip
+
+# =============================================================================
+# 3. MOVEIT: planning scene, IK and arm motions (travel posture)
+# =============================================================================
+moveit:
+  namespace: /robot
+  group: arm
+  ik_roll_samples: 12
+  planning_pipeline: pilz_industrial_motion_planner
+  planner_id: PTP
+  fallback_pipeline: ompl
+  fallback_planner_id: RRTConnectkConfigDefault
+  # Real arm: slower than in sim.
+  velocity_scaling: 0.1
+  joint_goal_tolerance_rad: 0.001
+  # The Campetella's boxes from its reference model (placed with the TF of
+  # campetella_base_link in robot_map).
+  collision_from_description:
+    topic: /campetella_robot_description
+    root_frame: campetella_base_link
+    margin_m: 0.01
+    id_prefix: campetella_
+  collision_objects: []
+
+# Same travel posture as defect_detection_sim.
+travel_arm_q: [-1.57, -0.9, -1.5, -1.15, 1.57, 0.0]
+
+# =============================================================================
+# 4. NAVIGATION: Nav2, localization checks and the base loop
+# =============================================================================
+navigation:
+  drive: navigate_to_pose
+  retries: 3
+  retry_delay_s: 5.0
+  # The real map's bounds (maps/real_robot_environment_v4.yaml: origin
+  # (-8.829, -8.664), 179 x 155 cells of 0.1 m). The loop around the
+  # reference must fit inside; Nav2's costmap keeps it off the real walls.
+  workspace: [-8.8, 9.0, -8.6, 6.8]
+  min_clearance_m: 0.10
+  lane_clearance_m: 0.20
+  tracking_margin_m: 0.05
+  max_radius_m: 0.6
+  wall_margin_m: 0.05
+  localization_timeout_s: 60.0
+  settle_s: 3.0
+  # null: start from wherever the robot is localized (no start-pose check);
+  # the targets are done in driving order from the loop's first point.
+  start_pose: null
+  start_tolerance: [0.3, 0.2]
+  start_settle_s: 5.0
+  settle_tolerance: [0.05, 0.03]
+  # The real odometry drifts less than the simulated one.
+  jump_tolerance: [0.5, 0.3]
+  loop_path:
+    spacing: 0.05
+
+# =============================================================================
+# 5. TARGETS: what the pointer must reach, relative to campetella_base_link
+# =============================================================================
+base_placement:
+  machine_side: left
+  footprint: [1.2, 0.7]
+  window_m: 0.8
+  offsets_m: [0.05, 0.1]
+  spacing_m: 0.05
+  min_straight_before_stop_m: 0.65
+  approach:
+    max_speed_mps: 0.05
+    max_yaw_rate: 0.05
+    align_tolerance_rad: 0.02
+  seeds:
+    - [1.57, -2.2, 1.57, 0.63, 1.57, 3.14]
+
+# The pointer's +Z (along the cylinder) straight at look_at, roll fixed.
+camera_view:
+  roll: 0.0
+  view_distance_m: [0.3, 1.5]
+  reach_tolerance_m: 0.03
+  reach_tolerance_rad: 0.05
+
+record:
+  regex: "^/(tf|tf_static)$|^/joint_states$|^/robot/(cmd_vel.*|move_base/cmd_vel|robotnik_base_control/odom|plan|local_plan|(front|rear)_laser/scan|follow_path/_action/(feedback|status))$"
+
+capture:
+  enabled: false
+
+# defect_detection_sim's rail_front_1..3 moved into campetella_base_link (in
+# that sim the machine's root is at robot_map (-2, -3, 0.8), yaw 0): the
+# pointer tip 0.6-0.7 m in front of the rail's front face, aimed at it.
+targets:
+  - {name: rail_front_1, frame: pointer, position: [-2.4, 0.44, 0.258], look_at: [-2.4, -0.244, -0.05]}
+  - {name: rail_front_2, frame: pointer, position: [-1.6, 0.446, 0.258], look_at: [-1.6, -0.238, -0.05]}
+  - {name: rail_front_3, frame: pointer, position: [-0.8, 0.471, 0.258], look_at: [-0.8, -0.213, -0.05]}

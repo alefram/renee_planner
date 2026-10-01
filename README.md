@@ -26,6 +26,7 @@ How it works, how to run it in sim, and the status of each mission: [docs/](docs
 | `trajectory_controller_node.py` | ROS 2 node, interface only: reads `joint_states`/`odom`/TF, sends Nav2 and MoveIt requests, publishes `cmd_vel`/`joint_trajectory` |
 | `recorders.py` | Run recorders of the camera pose (defect detection) and path (cleaning, screw detection) missions: per-tick data, plan and results saved as `<mission>_run.npz`, and the `summary.txt` tables |
 | `scripts/plot_run.py` | Plots a run from its `<mission>_run.npz`: `python3 scripts/plot_run.py data/<experiment>/<stamp>` |
+| `arm_static_planner_node.py` + `launch/arm_static_planner.launch.py` | Arm-only camera views, base fixed (no Nav2, no HQP): for each target frame (TF, or a pose in the YAML) MoveIt places the camera `view.standoff_m` along the target's +Z looking at its origin; results in `results.yaml`. `ros2 launch renee_trajectory_generation arm_static_planner.launch.py experiment:=arm_static_planner_sim`. The goal math is in `arm_static_planner.py`; `launch/arm_static_planner_frames.launch.py experiment:=<name>` publishes the targets and tool goals as TF frames (for RViz) without moving the robot |
 | `launch/trajectory_controller.launch.py` | Runs the node with one experiment YAML (and the `/capture_rgbd` server when the YAML asks for it) |
 | `scripts/record_iso_video.py` | Records a video of the Gazebo run from a fixed or following camera |
 
@@ -102,6 +103,7 @@ pass sampled every 2 cm (path parameter, base pose, arm joints).
 |---|---|
 | `cleaning_sim` | two nozzle passes along the transversal rail with the arm fixed: 45° from above going, perpendicular to the front face coming back with the base in reverse |
 | `defect_detection_sim` | 13 camera poses around the Campetella (authored in web_tf_editor): Nav2 drives the base on a loop generated from the machine's boxes (>= 0.30 m clearance), MoveIt places the camera; no capture yet |
+| `motion_test_real` | real robot, real map: base around the Campetella's CAD reference, pointer_tester tip at 3 rail points ("Real robot: motion test") |
 | `screw_detection_sim` | slow camera pass straight above the rail's row of holes (between the front supports), stopping every 0.1 m to capture RGB-D keyframes |
 
 Every experiment YAML has the same numbered sections, in this order (a
@@ -134,6 +136,49 @@ experiment:
 
 Coordinates (loop, targets, collision objects) are those of the
 map in use: a real-robot experiment needs the real map's values.
+
+## Real robot: motion test
+
+`motion_test_real` tests the whole robot on the real map: Nav2 drives the base
+on the loop around the Campetella and MoveIt aims the pointer_tester tip at
+three points of its front rail (`defect_detection` mission, no HQP, so no
+venv needed). There is no Campetella in the lab, so its CAD is published as a
+reference only, at a pose you choose on a free area of the map. The targets
+are written relative to `campetella_base_link` (`targets_origin`) and follow it.
+
+1. Base: `docker compose up bridge-real localize_real navigation-real`.
+2. Arm with the pointer (External Control running on the pendant):
+
+   ```bash
+   ros2 launch renee_action_servers bringup_actions.launch.py real_robot:=true \
+     robot_ip:=192.168.0.101 reverse_ip:=192.168.0.150 use_rviz:=true
+   ```
+
+3. The Campetella reference: `campetella_base_link` at (x, y, yaw) in
+   `robot_map`, z 0.8 (its CAD origin, as in sim). Pick a free area with room
+   for the loop (the machine plus ~1.5 m on every side) and check it in RViz
+   (add a RobotModel on `/campetella_robot_description`):
+
+   ```bash
+   ros2 launch campetella_sim spawn_campetella.launch.py gazebo:=false \
+     parent_frame:=robot_map use_sim_time:=false x:=1.0 y:=0.0 z:=0.8 yaw:=0.0
+   ```
+
+4. Run (slow arm: `velocity_scaling: 0.1`; e-stop at hand):
+
+   ```bash
+   ros2 launch renee_trajectory_generation trajectory_controller.launch.py experiment:=motion_test_real
+   ```
+
+To give another target, add a line to `targets` in
+`config/experiments/motion_test_real.yaml`, in `campetella_base_link`: the
+pointer tip at `position`, its +Z aimed at `look_at` (0.3-1.5 m apart), e.g.
+
+```yaml
+  - {name: my_point, frame: pointer, position: [-1.2, 0.45, 0.3], look_at: [-1.2, -0.25, 0.0]}
+```
+
+Without `targets_origin` the targets are in `robot_map` directly.
 
 ## Targets, base stops and steps
 

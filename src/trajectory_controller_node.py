@@ -88,32 +88,74 @@ def _collision_objects_from_description(node: Node, spec: dict, frame: str, time
     received = []
     qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
     sub = node.create_subscription(String, topic, lambda msg: received.append(msg.data), qos)
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline and not received:
+        rclpy.spin_once(node, timeout_sec=0.1)
+    node.destroy_subscription(sub)
+    if not received:
+        raise RuntimeError(f"{topic} not received in {timeout_s}s: no machine collision model")
+    x, y, z, yaw = _planar_transform(node, frame, root_frame, max(deadline - time.monotonic(), 1.0))
+    boxes = urdf_collision_boxes(received[0], root_frame)
+    objects = to_collision_objects(boxes, (x, y, z, yaw), frame,
+                                   margin_m=float(spec.get("margin_m", 0.0)),
+                                   id_prefix=spec.get("id_prefix", ""))
+    node.get_logger().info(f"{len(objects)} collision boxes from {topic} ({root_frame} at "
+                           f"({x:.3f}, {y:.3f}, {z:.3f}), yaw {math.degrees(yaw):.1f} deg in {frame})")
+    return objects
+
+
+def _planar_transform(node: Node, frame: str, child: str, timeout_s: float) -> tuple:
+    """Output: (x, y, z, yaw) of child in frame, waiting up to timeout_s for the TF.
+
+    Raises:
+        RuntimeError: if the transform doesn't arrive, or child is tilted in frame.
+    """
     tf_buffer = tf2_ros.Buffer()
     tf_listener = tf2_ros.TransformListener(tf_buffer, node)
     deadline = time.monotonic() + timeout_s
     transform = None
-    while time.monotonic() < deadline and (not received or transform is None):
+    while time.monotonic() < deadline and transform is None:
         rclpy.spin_once(node, timeout_sec=0.1)
-        if transform is None and tf_buffer.can_transform(frame, root_frame, Time()):
-            transform = tf_buffer.lookup_transform(frame, root_frame, Time()).transform
-    node.destroy_subscription(sub)
+        if tf_buffer.can_transform(frame, child, Time()):
+            transform = tf_buffer.lookup_transform(frame, child, Time()).transform
     tf_listener.unregister()
-    if not received:
-        raise RuntimeError(f"{topic} not received in {timeout_s}s: no machine collision model")
     if transform is None:
-        raise RuntimeError(f"no transform {frame} -> {root_frame} in {timeout_s}s")
+        raise RuntimeError(f"no transform {frame} -> {child} in {timeout_s:.0f}s")
     q = transform.rotation
     roll, pitch, yaw = Rotation.from_quat([q.x, q.y, q.z, q.w]).as_euler("xyz")
     if max(abs(roll), abs(pitch)) > 0.01:
-        raise RuntimeError(f"{root_frame} is tilted in {frame} (roll {roll:.3f}, pitch {pitch:.3f} rad)")
+        raise RuntimeError(f"{child} is tilted in {frame} (roll {roll:.3f}, pitch {pitch:.3f} rad)")
     t = transform.translation
-    boxes = urdf_collision_boxes(received[0], root_frame)
-    objects = to_collision_objects(boxes, (t.x, t.y, t.z, yaw), frame,
-                                   margin_m=float(spec.get("margin_m", 0.0)),
-                                   id_prefix=spec.get("id_prefix", ""))
-    node.get_logger().info(f"{len(objects)} collision boxes from {topic} ({root_frame} at "
-                           f"({t.x:.3f}, {t.y:.3f}, {t.z:.3f}), yaw {math.degrees(yaw):.1f} deg in {frame})")
-    return objects
+    return t.x, t.y, t.z, yaw
+
+
+def _targets_to_frame(node: Node, config: dict, frame: str, timeout_s: float) -> None:
+    """Rewrite the targets given in `targets_origin` into frame (targets_frame), in place.
+
+    With `targets_origin: <frame>` the targets' position / look_at / path
+    points are relative to that frame (e.g. campetella_base_link, so they
+    follow the machine wherever its reference pose puts it in the map); the
+    mission always gets them in targets_frame.
+    """
+    origin = config.get("targets_origin")
+    if not origin or origin == frame:
+        return
+    x, y, z, yaw = _planar_transform(node, frame, origin, timeout_s)
+    c, s = math.cos(yaw), math.sin(yaw)
+
+    def point(p):
+        return [x + c * p[0] - s * p[1], y + s * p[0] + c * p[1], z + p[2]]
+
+    for target in config.get("targets") or []:
+        for key in ("position", "look_at"):
+            if key in target:
+                target[key] = point(target[key])
+        path = target.get("path") or {}
+        for key in ("start", "end"):
+            if key in path:
+                path[key] = point(path[key])
+    node.get_logger().info(f"targets given in {origin} ({x:.3f}, {y:.3f}, {z:.3f}, yaw "
+                           f"{math.degrees(yaw):.1f} deg in {frame}), moved to {frame}")
 
 
 def _yaw_from_quaternion(q) -> float:
@@ -246,6 +288,7 @@ class TrajectoryControllerNode(Node):
                 self, moveit_section["collision_from_description"], config.get("targets_frame", "robot_map"),
                 startup_timeout_s) + list(moveit_section.get("collision_objects") or [])
             config["moveit"] = moveit_section
+        _targets_to_frame(self, config, config.get("targets_frame", "robot_map"), startup_timeout_s)
         default_xacro, mappings = resolve_default_xacro(config.get("wrist_camera", "none"), ur_type)
         self.log = self.get_logger()
         self._dt = 1.0 / control_rate_hz

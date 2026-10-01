@@ -14,6 +14,7 @@ install(DIRECTORY
 
 install(PROGRAMS
   src/trajectory_controller_node.py
+  src/arm_static_planner_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

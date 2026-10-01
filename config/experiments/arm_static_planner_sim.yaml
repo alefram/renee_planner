@@ -1,0 +1,87 @@
+# Arm-only camera views in sim: the base stays where it is and MoveIt moves the
+# UR arm so the wrist camera looks at each target frame from `view.standoff_m`
+# along the target's +Z (optical axis straight at the target's origin). No
+# Nav2, no HQP. Targets are frames on TF (tf_frame) or poses written here
+# (position + rpy_deg / quaternion, in reference_frame).
+# Run with: ros2 launch renee_trajectory_generation arm_static_planner.launch.py experiment:=arm_static_planner_sim
+
+# =============================================================================
+# 1. EXPERIMENT: name, description and node parameters (sim robot interfaces)
+# =============================================================================
+experiment:
+  name: arm_static_planner_sim
+  description: >-
+    Base fixed, MoveIt aims the wrist ZED 2i at two YAML target poses and one TF target frame,
+    0.4 m along each target's +Z.
+  node_parameters:
+    use_sim_time: true
+    joint_states_topic: /robot/joint_states
+    startup_timeout_s: 30.0
+
+# =============================================================================
+# 2. FRAMES: the frame of the YAML targets and the camera
+# =============================================================================
+# YAML target poses are in this frame (the arm's base: x forward, z up,
+# 0.537 m above robot_base_footprint); TF targets are looked up in it too.
+reference_frame: robot_arm_base_link
+
+frames:
+  camera: robot_arm_rgbd_camera_left_camera_optical_frame
+
+# =============================================================================
+# 3. VIEW: where the camera goes relative to each target
+# =============================================================================
+# camera = target * Trans(0, 0, standoff_m) * RotX(180 deg) * RotZ(roll_deg):
+# optical +Z = -target Z, image x = target X, image y = -target Y at roll 0.
+# roll_samples: N > 0 leaves the roll free (N rolls tried, the IK closest to
+# the current arm wins); 0 keeps the image orientation from the target.
+# Per target, standoff_m and roll_deg override these.
+view:
+  standoff_m: 0.4
+  roll_deg: 0.0
+  roll_samples: 0
+  settle_s: 1.0
+  # A target counts as reached when the camera measured on TF after the
+  # motion is this close to its goal.
+  reach_tolerance_m: 0.01
+  reach_tolerance_rad: 0.03
+
+# =============================================================================
+# 4. ARM AND MOVEIT
+# =============================================================================
+arm:
+  # Optional posture before the first target (null: start from where the arm is).
+  home_q: null
+
+moveit:
+  namespace: /robot
+  group: arm
+  ik_link: robot_arm_tool0
+  planning_frame: robot_map
+  base_frame: robot_base_footprint
+  ik_timeout_s: 0.1
+  planning_pipeline: pilz_industrial_motion_planner
+  planner_id: PTP
+  # If the Pilz PTP motion fails, the same joint goal is retried with OMPL.
+  fallback_pipeline: ompl
+  fallback_planner_id: RRTConnectkConfigDefault
+  velocity_scaling: 0.3
+  joint_goal_tolerance_rad: 0.001
+  # Extra boxes for the planning scene: {id, frame, box: [sx, sy, sz], position: [x, y, z], yaw}.
+  collision_objects: []
+
+# =============================================================================
+# 5. TARGETS
+# =============================================================================
+# Static TF frames the launch file publishes (to try TF targets in sim).
+publish_frames:
+  - {name: arm_static_planner_test_target, parent: robot_arm_base_link, position: [0.7, -0.3, 0.3], rpy_deg: [90, 0, -60]}
+
+targets:
+  # A wall 0.8 m in front: target +Z towards the arm, camera 0.4 m in front of
+  # it looking forward, image upright.
+  - {name: front_wall, position: [0.8, 0.0, 0.3], rpy_deg: [90, 0, -90]}
+  # A point on a table at the arm base's height: camera 0.4 m above, looking down.
+  - {name: table_top, position: [0.6, 0.2, 0.0], rpy_deg: [0, 0, 0]}
+  # A frame from TF (looked up when its turn comes).
+  - {name: tf_target, tf_frame: arm_static_planner_test_target}

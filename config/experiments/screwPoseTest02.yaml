@@ -1,0 +1,78 @@
+# Real robot, base fixed: MoveIt moves the UR arm so tool0 reaches a given
+# pose: the 50 mm pre-contact pose of screw 21 (M6), computed outside (the
+# pointer tip 50 mm from the screw on its approach axis). No Nav2, no HQP,
+# no capture.
+# Run with: ros2 launch renee_trajectory_generation arm_static_planner.launch.py experiment:=screwPoseTest02
+
+# =============================================================================
+# 1. EXPERIMENT: name, description and node parameters (real robot interfaces)
+# =============================================================================
+experiment:
+  name: screwPoseTest02
+  description: >-
+    Real robot, base fixed: tool0 to the given 50 mm pre-contact pose of screw 21 (M6).
+  # Real robot: ur_robot_driver (arm, root namespace, tf_prefix robot_arm_),
+  # move_group under /robot, bringup_actions end_effector:=pointer_tester (default).
+  node_parameters:
+    use_sim_time: false
+    joint_states_topic: /joint_states
+    startup_timeout_s: 60.0
+
+# =============================================================================
+# 2. FRAMES: the frame of the target and the frame placed on it
+# =============================================================================
+# UR's `base` (robot_arm_base_link turned 180 deg about Z).
+reference_frame: robot_arm_base
+
+frames:
+  tool: robot_arm_tool0
+
+# =============================================================================
+# 3. GOAL: tool0 exactly at the given pose
+# =============================================================================
+view:
+  # The node places the tool at target * RotX(180 deg) * Trans(0, 0, standoff):
+  # standoff 0 and the target quaternion below (= the given one * RotX(180 deg))
+  # put tool0 exactly at the given pose.
+  standoff_m: 0.0
+  roll_deg: 0.0
+  # The given orientation is complete (roll included): no free roll.
+  roll_samples: 0
+  settle_s: 2.0
+  reach_tolerance_m: 0.01
+  reach_tolerance_rad: 0.03
+
+# =============================================================================
+# 4. ARM AND MOVEIT
+# =============================================================================
+arm:
+  home_q: null
+
+moveit:
+  namespace: /robot
+  group: arm
+  ik_link: robot_arm_tool0
+  planning_frame: robot_map
+  base_frame: robot_base_footprint
+  ik_timeout_s: 0.1
+  planning_pipeline: pilz_industrial_motion_planner
+  planner_id: PTP
+  # No OMPL retry: near the part (not in the planning scene) only Pilz PTP's
+  # predictable joint-space motion; a failed PTP stops the target.
+  fallback_pipeline: null
+  # Real arm, touching a part: slow.
+  velocity_scaling: 0.05
+  joint_goal_tolerance_rad: 0.001
+  collision_objects: []
+
+# =============================================================================
+# 5. TARGETS
+# =============================================================================
+# Given TOOL0 TARGET, 50 mm pre-contact, in robot_arm_base:
+#   position [0.023679, 0.551909, 0.682690]
+#   quaternion xyzw [0.990522, 0.015832, 0.001709, -0.136426]
+# The quaternion below is that one * RotX(180 deg) (see view above).
+targets:
+  - name: screw_21_M6_tool0_precontact_50mm
+    position: [0.023679, 0.551909, 0.682690]
+    quaternion: [0.136426, -0.001709, 0.015832, 0.990522]

@@ -1,0 +1,81 @@
+# Real robot, base fixed: MoveIt moves the UR arm so the pointer_tester tip
+# comes to a screw along its approach axis: 50 mm before it, then on it. The
+# target is the screw pose; the pointer and the approach are set here. No
+# Nav2, no HQP, no capture.
+# Run with: ros2 launch renee_trajectory_generation arm_static_planner.launch.py experiment:=screwPoseTest03
+
+# =============================================================================
+# 1. EXPERIMENT: name, description and node parameters (real robot interfaces)
+# =============================================================================
+experiment:
+  name: screwPoseTest03
+  description: >-
+    Real robot, base fixed: the pointer_tester tip to a screw along its approach axis (50 mm before it, then on it).
+  # Real robot: ur_robot_driver (arm, root namespace, tf_prefix robot_arm_),
+  # move_group under /robot, bringup_actions end_effector:=pointer_tester (default).
+  node_parameters:
+    use_sim_time: false
+    joint_states_topic: /joint_states
+    startup_timeout_s: 60.0
+
+# =============================================================================
+# 2. FRAMES: the frame of the target and the tool frame placed on it
+# =============================================================================
+# UR's `base` (robot_arm_base_link turned 180 deg about Z), the screw detection's frame.
+reference_frame: robot_arm_base
+
+frames:
+  # The pointer's tip, from TF (URDF: 0.196 m along tool0 Z, same orientation).
+  tool: robot_arm_pointer_tester_tip
+  # To use a measured pointer instead of the URDF's, give the tip in tool0:
+  # tool_offset: {position: [0.0, 0.0, 0.196], rpy_deg: [0, 0, 0]}
+
+# =============================================================================
+# 3. APPROACH: the tip along the screw's +Z, pointing into the screw
+# =============================================================================
+view:
+  # Stages in order: 50 mm before the screw on its axis (tool0 then at the
+  # externally computed 50 mm pre-contact pose), then the tip on it.
+  # Raise the last one (e.g. 0.005) to stop just short of the detected pose.
+  standoff_m: [0.05, 0.0]
+  roll_deg: 0.0
+  # Roll fixed by the screw frame (tool0 x = screw x).
+  roll_samples: 0
+  settle_s: 2.0
+  reach_tolerance_m: 0.01
+  reach_tolerance_rad: 0.03
+
+# =============================================================================
+# 4. ARM AND MOVEIT
+# =============================================================================
+arm:
+  home_q: null
+
+moveit:
+  namespace: /robot
+  group: arm
+  ik_link: robot_arm_pointer_tester_tip
+  planning_frame: robot_map
+  base_frame: robot_base_footprint
+  ik_timeout_s: 0.1
+  planning_pipeline: pilz_industrial_motion_planner
+  planner_id: PTP
+  # No OMPL retry: near the part (not in the planning scene) only Pilz PTP's
+  # predictable joint-space motion; a failed PTP stops the target.
+  fallback_pipeline: null
+  # Real arm, touching a part: slow.
+  velocity_scaling: 0.05
+  joint_goal_tolerance_rad: 0.001
+  collision_objects: []
+
+# =============================================================================
+# 5. TARGETS: screw poses in robot_arm_base (+Z = approach axis, out of the part)
+# =============================================================================
+# Recovered from the given 50 mm PRE-CONTACT tool0 pose ([-0.037107, 0.554340,
+# 0.679088], xyzw [0.990352, 0.015826, 0.001786, -0.137654]): screw = tool0
+# - (0.196 + 0.050) m along the approach axis [0.000819, -0.272709, 0.962096];
+# orientation = that quaternion * RotX(180 deg). 61 mm from screw 21.
+targets:
+  - name: screw_test03
+    position: [-0.037309, 0.621426, 0.442412]
+    quaternion: [0.137654, -0.001786, 0.015826, 0.990352]
