@@ -1,0 +1,82 @@
+# Real robot, base fixed: MoveIt moves the UR arm so tool0 comes to the given
+# pose along its approach axis: 50 mm before it, then 30 mm before it. The
+# target is the given pose; the approach is set here. No Nav2, no HQP, no
+# capture.
+# Run with: ros2 launch renee_trajectory_generation arm_static_planner.launch.py experiment:=screwPoseTest09
+
+# =============================================================================
+# 1. EXPERIMENT: name, description and node parameters (real robot interfaces)
+# =============================================================================
+experiment:
+  name: screwPoseTest09
+  description: >-
+    Real robot, base fixed: tool0 to the given pose along its approach axis (50 mm before it, then 30 mm before it).
+  # Real robot: ur_robot_driver (arm, root namespace, tf_prefix robot_arm_),
+  # move_group under /robot, bringup_actions end_effector:=pointer_tester (default).
+  node_parameters:
+    use_sim_time: false
+    joint_states_topic: /joint_states
+    startup_timeout_s: 60.0
+
+# =============================================================================
+# 2. FRAMES: the frame of the target and the tool frame placed on it
+# =============================================================================
+# UR's `base` (robot_arm_base_link turned 180 deg about Z), the screw detection's frame.
+reference_frame: robot_arm_base
+
+frames:
+  # tool0 (the flange) is placed on the target, not the pointer tip.
+  tool: robot_arm_tool0
+
+# =============================================================================
+# 3. APPROACH: tool0 along the target's +Z, its Z pointing into the target
+# =============================================================================
+view:
+  # Stages in order: tool0 50 mm before the given pose on its axis, then
+  # 30 mm before it. Set the last one to 0.0 to put tool0 on the given pose.
+  standoff_m: [0.05, 0.03]
+  roll_deg: 0.0
+  # Roll fixed by the screw frame (tool0 x = screw x).
+  roll_samples: 0
+  settle_s: 2.0
+  reach_tolerance_m: 0.01
+  reach_tolerance_rad: 0.03
+
+# =============================================================================
+# 4. ARM AND MOVEIT
+# =============================================================================
+arm:
+  home_q: null
+
+moveit:
+  namespace: /robot
+  group: arm
+  ik_link: robot_arm_tool0
+  planning_frame: robot_map
+  base_frame: robot_base_footprint
+  ik_timeout_s: 0.1
+  # wrist_3 never turns: every goal keeps its current angle (tool0 is on the
+  # wrist_3 axis, so only its roll about the approach axis is given up).
+  lock_wrist_3: true
+  tool0_frame: robot_arm_tool0
+  planning_pipeline: pilz_industrial_motion_planner
+  planner_id: PTP
+  # No OMPL retry: near the part (not in the planning scene) only Pilz PTP's
+  # predictable joint-space motion; a failed PTP stops the target.
+  fallback_pipeline: null
+  # Real arm, touching a part: slow.
+  velocity_scaling: 0.05
+  joint_goal_tolerance_rad: 0.001
+  collision_objects: []
+
+# =============================================================================
+# 5. TARGETS: screw poses in robot_arm_base (+Z = approach axis, out of the part)
+# =============================================================================
+# Vertical approach. The given pose is where tool0 goes ([0.025679, 0.532909,
+# 0.682690], xyzw [1, 0, 0, 0]: tool0 Z straight down). Target = tool0 *
+# RotX(180 deg) = identity, so its +Z points up: tool0 50 mm above the pose
+# first, then 30 mm above it.
+targets:
+  - name: vertical_tool0
+    position: [0.025679, 0.532909, 0.682690]
+    quaternion: [0.0, 0.0, 0.0, 1.0]

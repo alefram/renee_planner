@@ -1,0 +1,18 @@
+# Goal: generate the camera poses of one experiment.
+# Experiment name (config/experiments/<name>.yaml) or a YAML path; empty: the node's experiment.
+string experiment
+# cad | sensor; empty: the experiment's mode.
+string source
+# Sensor mode: capture session folder (frames.jsonl); empty: the experiment's.
+string captures_dir
+# Reuse the cached surface/visibility of an identical configuration.
+bool use_cache
+---
+bool success
+string message
+CameraTrajectory trajectory
+string trajectory_file
+---
+# Pipeline stage being run (machine, surface, candidates, visibility, set_cover, ordering, write).
+string stage
+float32 progress

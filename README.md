@@ -1,281 +1,206 @@
 # renee_trajectory_generation
 
-ROS 2 package for the RB-VOGUI+ with UR5e working around a machine (the
-Campetella): **missions** (scanning, cleaning, screw detection) that reach a
-list of targets with the camera or a tool. Nav2 drives the base between
-planned stops (boat mode), MoveIt moves the arm, and a whole-body
-Hierarchical Quadratic Programming (HQP) controller refines the poses and
-runs the passes along lines (`trajectory_controller_node.py`).
+Generates the **scan trajectory of the Campetella**: the ordered list of
+camera poses (the ZED2i left optical frame, in `robot_map`) that covers the
+machine's surface, one forward lap around it. The package only **generates**
+the poses. It never moves the robot. A Behavior Tree executes them later:
+Nav2 drives the base and MoveIt2 places the camera (reference tree:
+`behavior_trees/scan_offline.xml`).
 
-How it works, how to run it in sim, and the status of each mission: [docs/](docs/README.md).
+There are two modes:
 
-## Components
+- **cad**: from the Campetella's CAD (the STL meshes of its URDF).
+- **sensor**: from a previous RGB-D scan (a `/capture_rgbd` session). The scan
+  is aligned to the CAD with ICP, which also corrects the hand-measured
+  machine pose, and completed with the CAD where the scan did not reach.
 
-| Module | Responsibility |
-| --- | --- |
-| `robot.py` | Pinocchio whole-body kinematic model (planar base + UR5e arm), state and Jacobians |
-| `tasks.py` | HQP tasks (`joint_limits`, `base_lane`, `camera_view`, `line_path`, `posture`, `base_velocity`) and `build_tasks()` |
-| `solver.py` | The `hqp()` lexicographic QP cascade (OSQP) and the `HQPController` orchestrator |
-| `mission.py` | What every mission shares, without ROS: loads the robot and HQP, plans the base stops, runs the generic steps (localize, move_arm, move_base, shift_base, move_frame); `create_mission()` picks the mission from `experiment.mission` |
-| `missions/cleaning.py` | Cleaning mission: line path targets for the nozzle, `follow_path` step (HQP pass with the base on its lane) |
-| `missions/defect_detection.py` | Defect detection mission (no HQP, no Pinocchio, no venv): per camera pose target a flat list of steps (choose base, stow, back to lane, drive with Nav2, lateral approach, MoveIt reach, record), the footprint clearance checked while driving; camera-pose plot and results |
-| `missions/screw_detection.py` | Screw detection mission: the cleaning passes with the camera straight above the row of holes, stopping every `capture.spacing_m` to capture RGB-D keyframes (`/capture_rgbd`) for a later detection step |
-| `navigation.py` | Boat-like base navigation without ROS: the loop (`LoopPath`), base placement (`BasePlanner`), localization checks, the base gate |
-| `campetella.py` | The Campetella's collision boxes from its published URDF (`moveit.collision_from_description`): box collisions down its fixed-joint tree, placed in `targets_frame` |
-| `arm_motion.py` | MoveIt clients for the arm: IK, state validity, planning-scene collision objects, joint motions |
-| `trajectory_controller_node.py` | ROS 2 node, interface only: reads `joint_states`/`odom`/TF, sends Nav2 and MoveIt requests, publishes `cmd_vel`/`joint_trajectory` |
-| `recorders.py` | Run recorders of the camera pose (defect detection) and path (cleaning, screw detection) missions: per-tick data, plan and results saved as `<mission>_run.npz`, and the `summary.txt` tables |
-| `scripts/plot_run.py` | Plots a run from its `<mission>_run.npz`: `python3 scripts/plot_run.py data/<experiment>/<stamp>` |
-| `arm_static_planner_node.py` + `launch/arm_static_planner.launch.py` | Arm-only camera views, base fixed (no Nav2, no HQP): for each target frame (TF, or a pose in the YAML) MoveIt places the camera `view.standoff_m` along the target's +Z looking at its origin; results in `results.yaml`. `ros2 launch renee_trajectory_generation arm_static_planner.launch.py experiment:=arm_static_planner_sim`. The goal math is in `arm_static_planner.py`; `launch/arm_static_planner_frames.launch.py experiment:=<name>` publishes the targets and tool goals as TF frames (for RViz) without moving the robot |
-| `launch/trajectory_controller.launch.py` | Runs the node with one experiment YAML (and the `/capture_rgbd` server when the YAML asks for it) |
-| `scripts/record_iso_video.py` | Records a video of the Gazebo run from a fixed or following camera |
+A web viewer shows the results: the machine, the camera frustums, the route
+and the coverage.
 
-Each experiment is one YAML in `config/experiments/`. It holds everything for
-the run: the priority levels and tasks solved each control cycle, the
-targets, MoveIt and navigation settings, and under
-`experiment.node_parameters` the node's runtime parameters (sim or real robot
-topics, control rate, OSQP tolerances).
+`hqp/` holds the whole-body HQP model. `legacy/` holds the previous missions,
+frozen; see [legacy/README.md](legacy/README.md). The new code does not import
+either of them.
+
+## Structure
+
+```
+renee_trajectory_generation/      Python package, no rclpy
+  machine.py  surface/{base,cad_mesh,sensor_tsdf}.py  camera.py  workspace.py
+  candidates.py  visibility.py  set_cover.py  ordering.py  trajectory.py  pipeline.py
+  hqp/  legacy/
+interfaces/msg/{CameraPose,CameraTrajectory}.msg   interfaces/action/GenerateScanPoses.action
+src/scan_pose_generator_node.py   src/scan_viewer_server_node.py
+launch/scan_pose_generator.launch.py   launch/scan_viewer.launch.py
+web/                              viewer: React + TypeScript + Vite + Tailwind + react-three-fiber (dist/ committed)
+behavior_trees/scan_offline.xml   reference tree for the executor
+config/experiments/campetella_scan_{cad,sensor}_{sim,real}.yaml
+config/trajectories/              output: <experiment>.yaml, _coverage.npz, _machine.glb
+legacy/                           previous nodes, launch files, scripts and configs
+```
+
+The pipeline runs **machine → surface → target → workspace → candidates → visibility → set_cover → ordering → trajectory**:
+
+| File | What it does | Input → Output |
+|---|---|---|
+| `machine.py` | What the machine is and where it is | URDF XML, `campetella_config.yaml`, robot_map → campetella_base_link → mesh parts (STL, scale, pose), collision boxes, `T_map_machine` |
+| `surface/base.py` | Common surface format | → `SurfaceModel`: points, normals, section per point, occluder mesh, `raycast()` |
+| `surface/cad_mesh.py` | CAD mode | Machine → STLs merged and decimated (quadric), Poisson-disk samples (~2.5 cm) with normals; bottom faces and contact faces dropped; viewer `.glb` |
+| `surface/sensor_tsdf.py` | Sensor mode | `frames.jsonl` (depth, intrinsics, `T_world_camera`) → TSDF → marching cubes → samples; ICP point-to-plane against the CAD → corrected machine pose; CAD completion |
+| `target.py` | What to inspect | surface + `target:` (sections, parts by link name with wildcards, exclusions) → the surface subset; the rest of the machine still occludes and still defines the lane |
+| `camera.py` | Camera model | position + look_at → optical-frame quaternion (+Z forward, upright image); `sees()`: frustum (60×40°), range (0.3–1.5 m), incidence (< 60°) |
+| `workspace.py` | Where the camera can be (no IK) | machine boxes, robot width, clearance, arm reach → base lane (loop around the machine), `inside()`, `arc_length()` |
+| `candidates.py` | Possible poses | surface patches (voxel × normal direction) × standoffs × tilts → reachable poses with a clear view of their patch |
+| `visibility.py` | What each candidate sees | candidates, surface, camera → sparse matrix candidate × point, with occlusion (open3d raycasting) |
+| `set_cover.py` | Fewest poses | visibility, costs → greedy weighted set cover up to the target coverage (95%) |
+| `ordering.py` | Visiting order | poses, lane → sorted by arc length (one forward lap) + 2-opt within a 0.6 m window |
+| `trajectory.py` | Result I/O | poses + coverage → `config/trajectories/<exp>.yaml` + `_coverage.npz` |
+| `pipeline.py` | Runs everything | experiment YAML + URDF + machine pose → Trajectory; caches surface, candidates and visibility by config hash |
+
+| Node | Input | Output |
+|---|---|---|
+| `scan_pose_generator_node.py` | experiment YAML, `/campetella_robot_description`, TF `robot_map → campetella_base_link`, goal on `/generate_scan_poses` | trajectory files, `/scan_trajectory` (latched `CameraTrajectory`), action result |
+| `scan_viewer_server_node.py` | `web/dist`, `config/trajectories/` | viewer on `http://<host>:8091`. It picks up new or regenerated trajectories on its own (polls every 3 s, no ROS needed); rosbridge, if installed, adds the camera's current pose from `/tf` |
+
+## Fixed ring (`poses.method: ring`)
+
+Instead of the fewest poses that cover the surface, a fixed lap: one pose
+every `ring.spacing_m` along the lane. The camera is `ring.inset_m` towards
+the machine, at `ring.height_m` (null: the machine's top + `above_top_m`,
+capped at `workspace.camera_height_m`), and looks at the machine `ring.pitch_deg`
+down from horizontal. Every pose is kept. The surface and visibility are
+still computed, so the viewer shows what the ring sees and what it misses
+(red). Example: `config/experiments/mapping.yaml` (45° from above, every 0.4 m).
+
+| File | What it does | Input → Output |
+|---|---|---|
+| `ring.py` | Fixed ring | lane, machine boxes, `ring:` → poses in lap order (`Candidates`) |
+
+## Inspecting only some parts
+
+Set the experiment's `target:` section. Use one experiment YAML per target, so
+each one gets its own trajectory file.
+
+```yaml
+target:
+  sections: [transversal]          # extraction, transversal, vertical, wrist, cart
+  parts: [vertical27, wrist*]      # URDF link names, with or without _link; shell wildcards
+  exclude_parts: [cart*]
+```
+
+A surface point is kept if its section **or** its part is listed. Everything
+empty means the whole machine. If nothing matches, the error lists the
+available sections and parts. Only the surface to cover changes: the other
+parts still block the camera's view, and the lane still goes around the whole
+machine.
+
+## Output
+
+`config/trajectories/<experiment>.yaml`. This is what the executor reads.
+
+```yaml
+experiment: campetella_scan_cad_sim
+mode: cad
+frame: robot_map
+camera: {frame: robot_arm_rgbd_camera_left_camera_optical_frame, fov_deg: [60, 40], view_distance_m: [0.3, 1.5], ...}
+coverage: {ratio: 0.93, coverable_ratio: 0.95, surface_points: ..., uncovered_points: ..., file: <exp>_coverage.npz, ...}
+machine: {root_link: campetella_base_link, position: [...], orientation: [...], corrected_by_icp: false, mesh: <exp>_machine.glb}
+poses:   # execution order
+  - {id: 0, name: vertical_000, section: vertical, position: [x, y, z], orientation: [qx, qy, qz, qw],
+     look_at: [x, y, z], covered: 812, arc_m: 0.42, standoff_m: 0.8, tilt_deg: 0.0}
+```
+
+
+**Robot model:** the generator only uses the geometric workspace (the lane +
+arm reach + camera height + clearance from the machine). The executor decides
+with MoveIt (IK, joint limits, collisions) whether the robot can reach each
+pose, and skips it if not (`RecordSkippedPose` in the BT).
 
 ## Dependencies
 
-Build and run the package inside the ROS Jazzy container. Install the numerical
-dependencies in a virtual environment with access to the system ROS packages:
+The generator needs `open3d`, `numpy`, `scipy` and `PyYAML` (`requirements.txt`).
+`scipy` and `PyYAML` come from apt in the ROS image. Inside the sim container,
+install `open3d` directly. Keep NumPy < 2, because the ROS packages were built
+against apt's NumPy 1.26. This lasts until the container is recreated.
+
+```bash
+pip install --break-system-packages "open3d>=0.19" "numpy<2"
+```
+
+Or use a venv that can see the ROS packages:
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-python3 -m venv --system-site-packages /tmp/renee-hqp-venv
-source /tmp/renee-hqp-venv/bin/activate
-python -m pip install -r src/renee_simulation/renee_trajectory_generation/requirements-hqp.txt
+python3 -m venv --system-site-packages /tmp/renee-scan-venv
+source /tmp/renee-scan-venv/bin/activate
+python -m pip install -r src/renee_simulation/renee_trajectory_generation/requirements.txt
 ```
 
-The ROS image also ships its own Pinocchio (built for NumPy 1.x), which is
-found before the venv's. Put the venv's Pinocchio and native libraries first
-after activating the venv:
+The sim image has no `ensurepip`, so `python3 -m venv` fails there. Use
+`python3 -m venv --without-pip --system-site-packages /tmp/renee-scan-venv`
+instead. The venv's `python -m pip` is then the system pip, and it installs
+into the venv. `/tmp` is a volume shared by the sim containers, so the venv
+outlives them. Activate it in every shell before launching the generator.
+
+The viewer needs `rosbridge_server` at runtime. Node/npm are only needed to
+rebuild `web/dist`:
 
 ```bash
-C=/tmp/renee-hqp-venv/lib/python3.12/site-packages/cmeel.prefix
-export PYTHONPATH=$C/lib/python3.12/site-packages:/tmp/renee-hqp-venv/lib/python3.12/site-packages:$PYTHONPATH
-export LD_LIBRARY_PATH=$C/lib:$LD_LIBRARY_PATH
+cd web && npm install && npm run build      # npm run dev: hot reload, proxies /api to port 8091
 ```
-
-If `python3 -m venv` fails because `ensurepip` is missing, create it with
-`python3 -m venv --without-pip --system-site-packages /tmp/renee-hqp-venv`;
-the system `pip` is used instead.
-
-The version bounds in `requirements-hqp.txt` keep Pinocchio, Coal, urdfdom and
-TinyXML binary-compatible with the Python 3.12 environment used by Jazzy.
 
 ## Build
 
-From the workspace root:
-
 ```bash
-source /opt/ros/jazzy/setup.bash
-source /tmp/renee-hqp-venv/bin/activate
-colcon build --packages-select renee_trajectory_generation --cmake-args -DBUILD_TESTING=OFF
+colcon build --symlink-install --packages-select renee_trajectory_generation
 source install/setup.bash
 ```
 
+This also generates the msgs and the action. With `--symlink-install`, the
+experiment YAMLs are read from the source tree, the results go to the
+source's `config/trajectories/`, and the cache goes to `data/scan_cache/`
+(git-ignored). Without it, everything goes to `~/.ros/scan_poses/`.
+
 ## Usage
 
-Run an experiment by name (`config/experiments/<name>.yaml`) or by path,
-with Nav2 and move_group already running:
-
 ```bash
-ros2 launch renee_trajectory_generation trajectory_controller.launch.py experiment:=defect_detection_sim
+# Generator (waits for goals; run_on_start:=true generates once at startup)
+ros2 launch renee_trajectory_generation scan_pose_generator.launch.py experiment:=campetella_scan_cad_sim
+ros2 action send_goal --feedback /generate_scan_poses \
+  renee_trajectory_generation/action/GenerateScanPoses "{use_cache: true}"
+# Another experiment or a capture session, from the goal:
+#   "{experiment: campetella_scan_sensor_sim, captures_dir: /tmp/renee_scan_session, use_cache: true}"
+
+# Viewer
+ros2 launch renee_trajectory_generation scan_viewer.launch.py     # http://localhost:8091
 ```
 
-An unknown name lists the experiments. With a symlink install the YAML is
-read from the source tree, so editing it needs no rebuild. The outputs go to
-`data/<experiment name>/<YYYYmmdd_HHMMSS>/` (git-ignored): `experiment.yaml`
-and `node_parameters.yaml` (exact copy of what ran), `plan.yaml` (the base
-stops and steps), the mission's plot and `.npz`, `summary.txt` (the results
-table), `trajectory.yaml` and, for screw_detection, `captures/` (the RGB-D
-keyframes of `/capture_rgbd`) and `captures.yaml`.
+**Sim vs real:** only the experiment YAML changes (`use_sim_time`, the
+machine pose source, the captures folder). The generator needs the machine's
+description and its TF. In sim, the Campetella spawn provides both. On the
+real robot, use `spawn_campetella.launch.py gazebo:=false parent_frame:=robot_map
+use_sim_time:=false x:=... y:=... z:=0.8 yaw:=...` at the measured pose. You
+can also set `machine.urdf_file` and `machine.pose_source: yaml`.
 
-The executed trajectory is also kept with the configs, in
-`config/trajectories/<experiment name>.yaml` (overwritten by each run of that
-experiment), all in `robot_map`: the planned stops, where each step left the
-robot (base pose, arm joints, the MoveIt goal of each target), and each
-pass sampled every 2 cm (path parameter, base pose, arm joints).
+If the generator runs where the URDF's `file://` mesh paths do not exist
+(another container), map them with `machine.mesh_path_map`.
 
-| Experiment | Mission |
-|---|---|
-| `cleaning_sim` | two nozzle passes along the transversal rail with the arm fixed: 45° from above going, perpendicular to the front face coming back with the base in reverse |
-| `defect_detection_sim` | 13 camera poses around the Campetella (authored in web_tf_editor): Nav2 drives the base on a loop generated from the machine's boxes (>= 0.30 m clearance), MoveIt places the camera; no capture yet |
-| `motion_test_real` | real robot, real map: base around the Campetella's CAD reference, pointer_tester tip at 3 rail points ("Real robot: motion test") |
-| `screw_detection_sim` | slow camera pass straight above the rail's row of holes (between the front supports), stopping every 0.1 m to capture RGB-D keyframes |
+## How to test it
 
-Every experiment YAML has the same numbered sections, in this order (a
-section an experiment doesn't need keeps its header with "Not used in this
-experiment"):
-
-| # | Section | Keys |
-|---|---|---|
-| 1 | EXPERIMENT | `experiment` (name, `mission`, description, `node_parameters`) |
-| 2 | ROBOT AND FRAMES | `wrist_camera`, `ur_type`, `nozzle`, `targets_frame`, `frames` |
-| 3 | MOVEIT | `moveit` (`collision_from_description`: the Campetella's boxes from its model), `travel_arm_q` |
-| 4 | NAVIGATION | `navigation` (workspace, localization checks, `loop_path`) |
-| 5 | TARGETS | `base_placement`, `capture` (screw_detection), `targets` (frame poses or line paths; base stops are planned) |
-| 6 | HQP TASKS | `levels` |
-
-To add an experiment, copy one and change `experiment.name` and whatever the
-experiment tests. Sim or real is set per YAML in `experiment.node_parameters`.
-The real robot needs these values (the base twist enters the robot's
-`twist_mux` through `vogui_ros1_ros2_bridge`, so the e-stop and teleop still
-override it; the arm runs with ur_robot_driver, `tf_prefix: robot_arm_`):
-
-```yaml
-experiment:
-  node_parameters:
-    use_sim_time: false
-    cmd_vel_topic: /robot/docker/cmd_vel      # must be relayed by the bridge
-    cmd_vel_stamped: false
-    joint_trajectory_topic: /robot/scaled_joint_trajectory_controller/joint_trajectory
-```
-
-Coordinates (loop, targets, collision objects) are those of the
-map in use: a real-robot experiment needs the real map's values.
-
-## Real robot: motion test
-
-`motion_test_real` tests the whole robot on the real map: Nav2 drives the base
-on the loop around the Campetella and MoveIt aims the pointer_tester tip at
-three points of its front rail (`defect_detection` mission, no HQP, so no
-venv needed). There is no Campetella in the lab, so its CAD is published as a
-reference only, at a pose you choose on a free area of the map. The targets
-are written relative to `campetella_base_link` (`targets_origin`) and follow it.
-
-1. Base: `docker compose up bridge-real localize_real navigation-real`.
-2. Arm with the pointer (External Control running on the pendant):
-
-   ```bash
-   ros2 launch renee_action_servers bringup_actions.launch.py real_robot:=true \
-     robot_ip:=192.168.0.101 reverse_ip:=192.168.0.150 use_rviz:=true
-   ```
-
-3. The Campetella reference: `campetella_base_link` at (x, y, yaw) in
-   `robot_map`, z 0.8 (its CAD origin, as in sim). Pick a free area with room
-   for the loop (the machine plus ~1.5 m on every side) and check it in RViz
-   (add a RobotModel on `/campetella_robot_description`):
-
-   ```bash
-   ros2 launch campetella_sim spawn_campetella.launch.py gazebo:=false \
-     parent_frame:=robot_map use_sim_time:=false x:=1.0 y:=0.0 z:=0.8 yaw:=0.0
-   ```
-
-4. Run (slow arm: `velocity_scaling: 0.1`; e-stop at hand):
-
-   ```bash
-   ros2 launch renee_trajectory_generation trajectory_controller.launch.py experiment:=motion_test_real
-   ```
-
-To give another target, add a line to `targets` in
-`config/experiments/motion_test_real.yaml`, in `campetella_base_link`: the
-pointer tip at `position`, its +Z aimed at `look_at` (0.3-1.5 m apart), e.g.
-
-```yaml
-  - {name: my_point, frame: pointer, position: [-1.2, 0.45, 0.3], look_at: [-1.2, -0.25, 0.0]}
-```
-
-Without `targets_origin` the targets are in `robot_map` directly.
-
-## Targets, base stops and steps
-
-An experiment lists **targets** (section 5), all in `targets_frame`:
-
-```yaml
-frames:
-  camera: robot_arm_rgbd_camera_left_camera_optical_frame
-  nozzle: nozzle_tip
-targets:
-  # A frame pose: the frame's origin at `position`, its +Z aimed at `look_at`.
-  - {name: rear_2_1, frame: camera, position: [-3, -4.5, 1], look_at: [-3, -3.2, 0.7]}
-  # A path: the frame (line_path task) follows the line while the base drives along its lane.
-  - {name: transversal_top, frame: nozzle, path: {start: [-4.6, -3.02, 0.87], end: [-2.5, -3.02, 0.87]}}
-```
-
-The camera pose follows the `camera_view` task: optical axis (+Z) straight
-at `look_at`, image upright with `roll: 0.0` (6 DoF) or roll free with
-`roll: null` (5 DoF); `position`-to-`look_at` must be within
-`view_distance_m`. A pose counts as reached when the position and aim errors
-stay below `reach_tolerance_m` / `reach_tolerance_rad` for 1 s. `refine:
-false` on a target scores it once the arm is static after MoveIt, without
-the HQP.
-
-**No base poses are written.** At startup `navigation.BasePlanner` places the
-base stops on `navigation.loop_path` (boat mode: the base on the loop, its
-heading along it, driving forward only). For each target it samples the
-loop every `base_placement.spacing_m`, solves the arm IK locally (base
-fixed) and keeps the spots where the frame reaches the pose within the joint
-limits, with the arm clear of the `moveit.collision_objects` boxes. A
-straight sideways shift towards the machine (`base_placement.offsets_m`) is
-tried only for targets no spot on the loop reaches. Then it groups the
-targets into the fewest stops along the driving direction, from
-`navigation.start_pose`, so the base drives the loop once. The stops are
-logged and written to `plan.yaml`.
-
-The stops become a list of **steps**, run one after the other by the
-mission (`experiment.mission`: `cleaning`, `screw_detection` or `defect_detection`).
-The generic steps live in `mission.py`, each mission adds its own per target
-(`follow_path` in `missions/cleaning.py`, reused by `missions/screw_detection.py`).
-`defect_detection` does not use them: it is its own linear state machine
-(`missions/defect_detection.py`) over `navigation.py`'s rules:
-
-| Step | Executed by | What it does |
-|---|---|---|
-| `localize` | - | waits for stable localization at `navigation.start_pose` |
-| `move_arm` | MoveIt | joint motion (Pilz PTP, retried with `fallback_pipeline`), e.g. to `travel_arm_q` before driving |
-| `move_base` | Nav2 | `FollowPath` along the loop to the stop, then the base is brought aligned with the lane and static |
-| `shift_base` | node | straight sideways shift (only if the stop needs it), aligned and static; undone before leaving |
-| `move_frame` | MoveIt | `compute_ik` (seeded with the planner's solution) and the joint motion to the target's frame pose |
-| `refine_pose` (scanning) | HQP | refines the camera pose (`camera_view`, base held), with `check_state_validity` 0.25 s ahead at `validity_rate_hz` |
-| `follow_path` (cleaning, screw_detection) | HQP | the pass: `line_path` keeps the frame on the line, `base_lane` drives the base forward on its lane |
-
-Nav2 and MoveIt execute the large motions; the HQP only refines poses and
-runs path passes. A failed step marks its targets (`nav_failed`,
-`unreachable_ik`, `approach_failed`, `stow_failed`, `collision`, `timeout`)
-and skips the rest of its target or stop; stowing and shifting back onto the
-lane still run.
-
-The node needs move_group (the `moveit` compose service, started with
-`--no-deps` next to `scanning`) and Nav2. For faster runs, start both with
-`HEADLESS=true` (Gazebo server only, no RViz):
-
-```bash
-HEADLESS=true docker compose up scanning
-HEADLESS=true docker compose up --no-deps moveit
-```
-
-At the end (and on Ctrl+C) the run folder (`output_dir/<YYYYmmdd_HHMMSS>/`)
-gets `<mission>_run.npz` (every control tick, the plan and the results),
-`summary.txt`, `plan.yaml` and copies of the YAML and the node parameters.
-The figures are drawn afterwards from the `.npz`:
-
-```bash
-python3 scripts/plot_run.py data/<experiment>/<YYYYmmdd_HHMMSS>   # writes <mission>_run.png
-```
-
-While the HQP streams arm commands, the node integrates its own arm reference
-instead of resetting the model to the measured joints every cycle: a
-position-controlled arm tracks with a lag, and commanding "measured + v·dt"
-made the arm (and the cleaning pass) stall. The reference is resynced to the
-measurement when they differ by more than `arm_reference_reset_rad` (0.15 rad)
-and whenever the HQP is not streaming.
-
-## HQP behavior
-
-The whole-body decision variable is a 9-dimensional velocity vector: the
-mobile base's planar twist (`vx, vy, wz`, base frame) plus the six UR5e joint
-velocities. `solver.hqp(levels, nv)` solves the configured tasks as a
-lexicographic cascade of QPs (OSQP): at each priority level it minimizes that
-level's weighted least-squares residual, subject to (a) every inequality
-carried over from previous and current levels, and (b) the exact task value
-already achieved by every higher-priority level, frozen as an equality
-constraint. `tasks.build_tasks(config, robot)` turns the experiment YAML into the
-task objects consumed by each level.
-
-The mission runs it online through `trajectory_controller_node.py`, which
-subscribes to `/robot/joint_states` and `/robot/robotnik_base_control/odom` and
-publishes to `/robot/robotnik_base_control/cmd_vel` and
-`/robot/joint_trajectory_controller/joint_trajectory` at a fixed control rate.
+1. **Build**: `colcon build ...`. Check that `ros2 interface show renee_trajectory_generation/action/GenerateScanPoses` works and that the legacy launch files still find their YAMLs.
+2. **CAD mode in sim**:
+   - Start `scanning_entrypoint.sh` (headless).
+   - Launch the generator with `experiment:=campetella_scan_cad_sim` and send the goal.
+   - The log prints each stage, then the pose count and the coverage (target 95% of the reachable points).
+   - A second goal with `use_cache: true` should only redo set cover and ordering.
+3. **Viewer**:
+   - Launch `scan_viewer.launch.py` and open `http://localhost:8091`.
+   - Check that the frustums are outside the machine and within reach, that the route makes one forward lap (blue → red), and that the coverage has no big red (not covered) areas.
+   - Click a pose: the points it sees turn yellow.
+4. **CAD mode on the real robot (no motion)**:
+   - Publish the Campetella reference with `gazebo:=false parent_frame:=robot_map`.
+   - Run `campetella_scan_cad_real`.
+   - Check in the viewer that the poses sit on free map areas. With rosbridge on, the live camera frustum (magenta) shows where the real camera is.
+5. **Sensor mode**:
+   - Use a `/capture_rgbd` session from an earlier run (sim first).
+   - Generate `campetella_scan_sensor_sim` and compare it with the CAD result ("Compare with").
+   - To test ICP, set `machine.pose_source: yaml` with `machine.pose.xyz` a few cm off the true pose ((-2, -3, 0.8) in sim). The generated `machine.position` should come back close to the true pose (`corrected_by_icp: true`).

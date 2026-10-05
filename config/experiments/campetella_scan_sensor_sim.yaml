@@ -1,0 +1,118 @@
+# Camera poses around the Campetella from a previous RGB-D scan, in simulation.
+# The captures come from /capture_rgbd (sim ZED2i) during an earlier run; the
+# scan is fused (TSDF), aligned to the CAD with ICP and completed with it.
+# Run with: ros2 launch renee_trajectory_generation scan_pose_generator.launch.py experiment:=campetella_scan_sensor_sim
+# =============================================================================
+# 1. EXPERIMENT: name, mode and node parameters (sim or real robot)
+# =============================================================================
+experiment:
+  name: campetella_scan_sensor_sim
+  mode: sensor                     # cad | sensor
+  description: >-
+    Simulation: camera poses covering the Campetella reconstructed from a previous scan (completed with the CAD), one forward lap around it.
+  node_parameters:
+    use_sim_time: true
+    tf_timeout_s: 10.0
+    description_timeout_s: 15.0
+
+# Frame of the output poses (the executor's Nav2/MoveIt goals).
+frame: robot_map
+
+# =============================================================================
+# 2. MACHINE: description, enabled parts and pose
+# =============================================================================
+machine:
+  root_link: campetella_base_link
+  description_topic: /campetella_robot_description
+  urdf_file: ""                    # empty: the description topic; or a .urdf / .xacro path
+  config_file: package://campetella_sim/config/campetella_config.yaml
+  pose_source: tf                  # tf: robot_map -> campetella_base_link; yaml: the pose below
+  pose: {xyz: [-2.0, -3.0, 0.8], rpy_deg: [0.0, 0.0, 0.0]}
+  # Mesh paths in the URDF are file://<campetella_sim>/...; map them when the
+  # generator runs where that path differs (e.g. [["/fnh_pkgs/src", "/home/me/renee_ws/src"]]).
+  mesh_path_map: []
+
+# What to inspect: sections (extraction, transversal, vertical, wrist, cart)
+# and/or parts (link names, with or without _link; wildcards: transversal2*).
+# A point counts if its section or its part is listed; all empty = the whole
+# machine. The parts not listed still block the camera and keep the robot away.
+# e.g. sections: [transversal]   parts: [vertical27, wrist*]   exclude_parts: [cart*]
+target:
+  sections: []
+  parts: []
+  exclude_parts: []
+
+# =============================================================================
+# 3. SURFACE: TSDF reconstruction of a previous scan (+ the CAD, for ICP and completion)
+# =============================================================================
+surface:
+  # Session folder written by /capture_rgbd (frames.jsonl, depth_mm/, rgb/).
+  captures_dir: /tmp/renee_scan_session
+  voxel_m: 0.015                   # TSDF voxel
+  sdf_trunc_m: 0.06
+  depth_range_m: [0.2, 3.0]
+  frame_stride: 1
+  crop_margin_m: 0.3               # drop the reconstruction outside the machine boxes + this (floor, walls)
+  icp: true                        # align the scan to the CAD: corrects the machine pose
+  icp_max_distance_m: 0.08
+  icp_iterations: 60
+  complete_with_cad: true          # add the CAD points the scan did not reach
+  complete_distance_m: 0.04
+  # CAD sampling (ICP target and completion), as in the CAD mode.
+  spacing_m: 0.025
+  max_triangles: 150000
+  web_triangles: 60000
+  min_normal_z: -0.7
+  min_height_m: null
+  enclosed_distance_m: 0.03
+  seed: 0
+
+# =============================================================================
+# 4. CAMERA: ZED2i left optical frame, effective field of view for coverage
+# =============================================================================
+camera:
+  frame: robot_arm_rgbd_camera_left_camera_optical_frame
+  fov_deg: [60.0, 40.0]            # ZED2i: 110 x 70; the borders are not used for inspection
+  range_m: [0.3, 1.5]
+  max_incidence_deg: 60.0
+
+# =============================================================================
+# 5. WORKSPACE: where the robot can put the camera (no IK)
+# =============================================================================
+workspace:
+  robot_half_width_m: 0.35         # RB-VOGUI+ base: footprint 1.2 x 0.7 m
+  lane_clearance_m: 0.30           # base to machine footprint
+  arm_reach_in_m: 0.90             # camera from the lane towards the machine (plan view)
+  arm_reach_out_m: 0.30
+  camera_height_m: [0.40, 1.80]
+  min_clearance_m: 0.15            # camera to any machine collision box
+  loop_resolution_m: 0.05
+
+# =============================================================================
+# 6. CANDIDATES, VISIBILITY, SELECTION AND ORDER
+# =============================================================================
+candidates:
+  cluster_size_m: 0.25             # surface patch size
+  min_cluster_points: 5
+  standoffs_m: [0.6, 0.8, 1.0]
+  tilts_deg: [0.0, 25.0]
+  tilt_azimuths: 4
+  max_candidates: 8000
+  line_of_sight_tolerance_m: 0.03
+  seed: 0
+
+visibility:
+  occlusion_tolerance_m: 0.02
+
+set_cover:
+  target_coverage: 0.95            # of the points some candidate can see
+  views_per_point: 1
+  min_new_points: 20
+  max_poses: 300
+  tilt_cost_per_rad: 0.3
+
+ordering:
+  direction: ccw                   # driving direction around the machine (seen from above)
+  start_xy: null                   # null: start after the widest gap between poses
+  window_m: 0.6                    # 2-opt reorders poses only within this much lane
+  angle_weight_m_per_rad: 0.3

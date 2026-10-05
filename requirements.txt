@@ -1,0 +1,6 @@
+# Scan-pose generator (renee_trajectory_generation/*.py). Python 3.12 wheels.
+# Install in a venv with --system-site-packages (README "Dependencies").
+open3d>=0.19
+numpy>=1.26
+scipy>=1.11
+PyYAML>=6

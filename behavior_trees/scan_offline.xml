@@ -1,0 +1,63 @@
+<?xml version="1.0"?>
+<!--
+  Reference Behavior Tree (BehaviorTree.CPP v4) for the executor of a scan
+  trajectory. This package only generates the trajectory; the executor
+  implements the custom nodes below with Nav2 (base) and MoveIt2 (arm).
+
+  Input: config/trajectories/<experiment>.yaml (or the /scan_trajectory topic):
+  the camera optical-frame poses in robot_map, in execution order (one forward
+  lap around the machine).
+
+  Custom nodes (executor side):
+    LoadCameraTrajectory  file -> poses (queue of CameraPose), frame, camera_frame
+    PopCameraPose         poses -> pose (next one; FAILURE when the queue is empty)
+    ComputeBasePose       camera pose -> base pose on the lane from which the arm
+                          reaches it (IK check); FAILURE if none
+    NavigateToPose        Nav2 action /navigate_to_pose (boat mode, forward only)
+    MoveCameraToPose      MoveIt2: place camera_frame at pose (Pilz PTP, OMPL fallback)
+    CaptureRGBD           /capture_rgbd action (waypoint_id = pose name)
+    StowArm               MoveIt2 named state before driving
+    RecordSkippedPose     logs a pose that could not be reached (the scan goes on)
+-->
+<root BTCPP_format="4" main_tree_to_execute="ScanOffline">
+
+  <BehaviorTree ID="ScanOffline">
+    <Sequence>
+      <LoadCameraTrajectory file="{trajectory_file}" poses="{poses}" frame="{frame}" camera_frame="{camera_frame}"/>
+      <StowArm/>
+      <!-- One iteration per camera pose. Only PopCameraPose can fail (empty
+           queue): it ends the loop, and ForceSuccess lets the tree finish. -->
+      <ForceSuccess>
+        <KeepRunningUntilFailure>
+          <Sequence>
+            <PopCameraPose poses="{poses}" pose="{pose}" name_out="{pose_name}"/>
+            <ForceSuccess>
+              <Fallback>
+                <SubTree ID="VisitCameraPose" pose="{pose}" pose_name="{pose_name}" camera_frame="{camera_frame}"/>
+                <RecordSkippedPose pose_name="{pose_name}"/>
+              </Fallback>
+            </ForceSuccess>
+          </Sequence>
+        </KeepRunningUntilFailure>
+      </ForceSuccess>
+      <StowArm/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="VisitCameraPose">
+    <Sequence>
+      <ComputeBasePose camera_pose="{pose}" camera_frame="{camera_frame}" base_pose="{base_pose}"/>
+      <RetryUntilSuccessful num_attempts="2">
+        <Sequence>
+          <StowArm/>
+          <NavigateToPose goal="{base_pose}"/>
+        </Sequence>
+      </RetryUntilSuccessful>
+      <RetryUntilSuccessful num_attempts="2">
+        <MoveCameraToPose pose="{pose}" camera_frame="{camera_frame}"/>
+      </RetryUntilSuccessful>
+      <CaptureRGBD waypoint_id="{pose_name}"/>
+    </Sequence>
+  </BehaviorTree>
+
+</root>
