@@ -266,7 +266,7 @@ def generate(cfg: ExperimentConfig, urdf_xml: str, T_map_machine: np.ndarray, ou
     candidates_npz = cached(f"candidates_{candidates_key}.npz")
     if cfg.method == "ring":
         # Fixed pattern: cheap, never cached.
-        candidates = ring_poses(surface, workspace, machine.boxes_in_map(), cfg.ring, log)
+        candidates = ring_poses(surface, workspace, machine.boxes_in_map(), cfg.ring, cfg.camera.fov_deg, log)
     elif hit(candidates_npz):
         candidates = Candidates.load(candidates_npz)
         log(f"[candidates] from cache ({len(candidates)})")

@@ -71,7 +71,9 @@ down from horizontal. Every pose is kept. The surface and visibility are
 still computed, so the viewer shows what the ring sees and what it misses
 (red). `ring.extra_rows` add poses at the same lane points with their own
 height and pitch (negative: looking up); a row with `sections` only keeps the
-poses within `near_m` of them (e.g. the tall vertical column). Example:
+poses within `near_m` of them (e.g. the tall vertical column). With
+`ring.standoff_m` each pose slides along its optical axis until the surface is
+that far (as close as the workspace allows). Example:
 `config/experiments/mapping.yaml`.
 
 | File | What it does | Input → Output |
