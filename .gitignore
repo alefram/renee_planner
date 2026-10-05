@@ -1,6 +1,6 @@
 # Run outputs (videos, plots, logs): kept locally, not versioned.
 data/
-
+node_modules/
 # Python bytecode.
 __pycache__/
 *.pyc
