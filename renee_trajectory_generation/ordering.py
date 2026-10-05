@@ -5,7 +5,8 @@ lane (workspace.py), OrderConfig (driving direction, start, reorder window).
 Output: the order (indices) and each pose's arc length along the lap.
 
 The poses are projected on the lane and sorted by arc length in the driving
-direction, so the base only drives forward (Nav2 boat mode). Then 2-opt
+direction, so the base only drives forward (Nav2 boat mode). With `end_xy`,
+the poses after its projection (before `start_xy` again) are dropped. Then 2-opt
 reverses runs of poses that lie within `window_m` of lane: the base barely
 moves there, and the arm travel (camera distance + rotation) gets shorter.
 """
@@ -17,11 +18,16 @@ import numpy as np
 
 from .workspace import Workspace
 
+# start_xy / end_xy snap: poses this far (lane arc) before the start or after the
+# end still count (the rows of one lane point project a few mm apart).
+_SNAP_M = 0.1
+
 
 @dataclass
 class OrderConfig:
     direction: str = "ccw"          # driving direction around the machine (ccw | cw, seen from above)
     start_xy: list | None = None    # the lap starts at this point's projection; None: at the widest gap
+    end_xy: list | None = None      # the lap ends at this point's projection (later poses dropped); None: full lap
     window_m: float = 0.6
     angle_weight_m_per_rad: float = 0.3
 
@@ -30,6 +36,8 @@ class OrderConfig:
             raise ValueError(f"ordering.direction must be ccw or cw (got {self.direction})")
         if self.start_xy is not None and len(self.start_xy) != 2:
             raise ValueError("ordering.start_xy must be [x, y] or null")
+        if self.end_xy is not None and len(self.end_xy) != 2:
+            raise ValueError("ordering.end_xy must be [x, y] or null")
         if self.window_m < 0.0:
             raise ValueError("ordering.window_m must be >= 0")
 
@@ -40,7 +48,8 @@ def _rotation_angle(Ra: np.ndarray, Rb: np.ndarray) -> float:
 
 def order_poses(positions_m: np.ndarray, rotations: np.ndarray, workspace: Workspace, cfg: OrderConfig):
     """Input: (P, 3) positions, (P, 3, 3) rotations, Workspace, config.
-    Output: (order (P,) indices into the inputs, arc_m (P,) lap arc length of each ordered pose)."""
+    Output: (order (K,) indices into the inputs, K <= P (end_xy drops the rest),
+    arc_m (K,) lap arc length of each ordered pose)."""
     count = len(positions_m)
     if count == 0:
         return np.empty(0, dtype=np.int64), np.empty(0)
@@ -52,6 +61,7 @@ def order_poses(positions_m: np.ndarray, rotations: np.ndarray, workspace: Works
         start = workspace.arc_length(np.array([cfg.start_xy], dtype=float))[0]
         if cfg.direction == "cw":
             start = length - start
+        start -= _SNAP_M
     else:
         # Start just after the widest gap between consecutive poses.
         sorted_arc = np.sort(arc)
@@ -59,6 +69,15 @@ def order_poses(positions_m: np.ndarray, rotations: np.ndarray, workspace: Works
         start = sorted_arc[(int(np.argmax(gaps)) + 1) % count] - 1e-6
     lap = (arc - start) % length
     order = list(np.argsort(lap, kind="stable"))
+    if cfg.end_xy is not None:
+        end = workspace.arc_length(np.array([cfg.end_xy], dtype=float))[0]
+        if cfg.direction == "cw":
+            end = length - end
+        end_lap = (end + _SNAP_M - start) % length
+        order = [i for i in order if lap[i] <= end_lap]
+        count = len(order)
+        if count == 0:
+            return np.empty(0, dtype=np.int64), np.empty(0)
 
     def cost(a: int, b: int) -> float:
         return float(np.linalg.norm(positions_m[a] - positions_m[b])

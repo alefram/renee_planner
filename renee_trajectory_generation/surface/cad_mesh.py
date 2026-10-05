@@ -1,4 +1,4 @@
-"""CAD mode: the surface to inspect from the machine's STL meshes.
+"""CAD mode: the surface to inspect from the machine's STL meshes and box visuals (cart supports).
 
 Input: `Machine` (machine.py: mesh parts + T_map_machine) and CadSurfaceConfig
 (sampling spacing, decimation size, filters).
@@ -61,7 +61,11 @@ def _stl_triangle_count(path: str) -> int:
 def _load_part(part, T_map_machine: np.ndarray):
     """Output: the part's open3d mesh in the map frame, welded (shared vertices) for decimation."""
     import open3d as o3d
-    mesh = o3d.io.read_triangle_mesh(part.path)
+    if part.box_size is not None:
+        mesh = o3d.geometry.TriangleMesh.create_box(*part.box_size)
+        mesh.translate(-0.5 * part.box_size)  # create_box starts at the origin; URDF boxes are centred
+    else:
+        mesh = o3d.io.read_triangle_mesh(part.path)
     if len(mesh.triangles) == 0:
         raise ValueError(f"mesh '{part.path}' ({part.name}) has no triangles")
     vertices = np.asarray(mesh.vertices) * part.scale_xyz
@@ -80,7 +84,8 @@ def merged_mesh(machine: Machine, max_triangles: int, log=print):
     import open3d as o3d
     sections = machine.sections
     parts = sorted({p.name for p in machine.parts})
-    counts = np.array([_stl_triangle_count(p.path) for p in machine.parts], dtype=float)
+    counts = np.array([12 if p.box_size is not None else _stl_triangle_count(p.path) for p in machine.parts],
+                      dtype=float)
     # Each part keeps its share of the budget, so small parts are not wiped out.
     ratio = min(1.0, max_triangles / counts.sum())
     vertices, triangles, colors, triangle_sections, triangle_parts = [], [], [], [], []

@@ -221,7 +221,7 @@ def generate(cfg: ExperimentConfig, urdf_xml: str, T_map_machine: np.ndarray, ou
     urdf_key = hashlib.sha1(urdf_xml.encode()).hexdigest()[:12]
 
     progress("surface", 0.1)
-    cad_key = _hash("cad-v2", urdf_key, cfg.machine.config_file, T_map_machine, cfg.cad)
+    cad_key = _hash("cad-v3", urdf_key, cfg.machine.config_file, T_map_machine, cfg.cad)
     cad_npz, cad_glb = cached(f"surface_cad_{cad_key}.npz"), cached(f"machine_cad_{cad_key}.glb")
     if hit(cad_npz) and os.path.isfile(cad_glb):
         surface = SurfaceModel.load(cad_npz)
@@ -297,6 +297,15 @@ def generate(cfg: ExperimentConfig, urdf_xml: str, T_map_machine: np.ndarray, ou
     chosen = candidates.take(selection.indices)
     order, arc = order_poses(chosen.positions_m, chosen.rotations, workspace, cfg.ordering)
     ordered = selection.indices[order]
+    if len(ordered) < len(selection.indices):
+        # ordering.end_xy dropped poses: the coverage counts only the kept ones.
+        view_count = np.asarray(visibility[ordered].astype(np.int32).sum(axis=0)).reshape(-1).astype(np.int32)
+        seen = view_count > 0
+        selection = dataclasses.replace(
+            selection, indices=ordered, view_count=view_count,
+            coverage_ratio=float(seen.sum() / max(len(seen), 1)),
+            coverable_ratio=float((seen & selection.coverable).sum() / max(selection.coverable.sum(), 1)))
+        log(f"[ordering] end_xy: {len(chosen) - len(ordered)} poses after the end dropped")
     log(f"[ordering] {len(ordered)} poses over a {workspace.loop_length_m:.1f} m lap ({cfg.ordering.direction})")
 
     progress("write", 0.95)

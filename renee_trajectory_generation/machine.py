@@ -27,14 +27,16 @@ class MeshPart:
     """One visual mesh of the machine.
 
     name: link name; section: machine section (extraction, transversal, ...);
-    path: mesh file on disk; scale_xyz: URDF mesh scale; T_machine_mesh: 4x4
-    pose of the mesh in the machine root frame.
+    path: mesh file on disk ("" for a box visual); scale_xyz: URDF mesh scale;
+    T_machine_mesh: 4x4 pose of the mesh in the machine root frame;
+    box_size: the size of a <box> visual (the cart supports), None for an STL.
     """
     name: str
     section: str
     path: str
     scale_xyz: np.ndarray
     T_machine_mesh: np.ndarray
+    box_size: np.ndarray | None = None
 
 
 @dataclass
@@ -178,6 +180,11 @@ def parse_urdf(urdf_xml: str, root_link: str = "campetella_base_link",
         section = section_of(name)
         for visual in link.findall("visual"):
             mesh = visual.find("geometry/mesh")
+            box = visual.find("geometry/box")
+            if mesh is None and box is not None:
+                # Box visuals (the cart supports, not in the CAD) are part of the surface too.
+                parts.append(MeshPart(name, section, "", np.ones(3), T_machine_link @ _origin(visual),
+                                      np.array([float(v) for v in box.get("size").split()])))
             if mesh is None:
                 continue
             scale = np.array([float(v) for v in mesh.get("scale", "1 1 1").split()])

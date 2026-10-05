@@ -31,11 +31,18 @@ poses:
 ring:
   spacing_m: 0.6                   # one pose every 0.6 m of lane
   pitch_deg: 30.0                  # optical axis 45 deg below horizontal, towards the machine
-  height_m: 1.1                  # null: machine top + above_top_m, capped at workspace.camera_height_m
+  height_m: 1.1                   # null: machine top + above_top_m, capped at workspace.camera_height_m
   above_top_m: 0.8
   inset_m: 0.4                     # camera from the lane towards the machine (arm reach)
   look_distance_m: 1.5             # look_at along the optical axis
-
+  # The vertical column (z 0.72-2.25 m) rises above the main row's view: two more
+  # rows at the arm's top height, only where the lane passes the column. At the
+  # column (~0.8 m away) pitch 0 sees z ~1.1-1.7 and pitch -35 (up) z ~1.6-2.5.
+  # Fields per row: height_m, pitch_deg (negative: up), sections, near_m, inset_m, look_distance_m.
+  extra_rows:
+    - {height_m: 1.4, pitch_deg: 35.0, sections: [vertical], near_m: 1.2, inset_m: 0.2}
+    - {height_m: 1.4, pitch_deg: 0.0, sections: [vertical], near_m: 1.2, inset_m: 0.2}
+    - {height_m: 1.4, pitch_deg: -35.0, sections: [vertical], near_m: 1.2, inset_m: 0.2}
 # =============================================================================
 # 2. MACHINE: description, enabled parts and pose
 # =============================================================================
@@ -118,6 +125,9 @@ set_cover:
 
 ordering:
   direction: ccw                   # driving direction around the machine (seen from above)
-  start_xy: null                   # null: start after the widest gap between poses
+  # Lap from pose 16 (the first stop with the vertical rows) to pose 12 of the
+  # previous run (transversal_012): poses 13-15 (the south-east corner) are dropped.
+  start_xy: [-1.30, -3.48]         # map x, y; null: start after the widest gap between poses
+  end_xy: [-2.15, -4.65]           # the last pose; later poses dropped. null: the full lap
   window_m: 0.0                    # keep the ring's order (no 2-opt)
   angle_weight_m_per_rad: 0.3

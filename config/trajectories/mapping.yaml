@@ -9,8 +9,8 @@ camera:
   fov_deg: [60.0, 40.0]
   view_distance_m: [0.3, 1.5]
   max_incidence_deg: 60.0
-coverage: {ratio: 0.213886, coverable_ratio: 0.213886, surface_points: 22166, coverable_points: 22166, uncovered_points: 17425,
-  views_per_point: 1, candidates: 25, stop_reason: fixed_pattern, file: mapping_coverage.npz}
+coverage: {ratio: 0.216899, coverable_ratio: 0.216899, surface_points: 25860, coverable_points: 25860, uncovered_points: 20251,
+  views_per_point: 1, candidates: 47, stop_reason: fixed_pattern, file: mapping_coverage.npz}
 machine:
   root_link: campetella_base_link
   pose_source: tf
@@ -22,254 +22,444 @@ poses:
 - id: 0
   name: transversal_000
   section: transversal
-  position: [-1.749869, -4.249852, 1.1]
-  orientation: [-0.759858, -0.415471, 0.239872, 0.438704]
-  look_at: [-2.843482, -3.548774, 0.35]
-  covered: 267
-  arc_m: 1.0e-06
+  position: [-1.295322, -3.478557, 1.1]
+  orientation: [-0.633963, -0.589992, 0.340632, 0.366019]
+  look_at: [-2.591012, -3.385342, 0.35]
+  covered: 331
+  arc_m: 0.101775
   standoff_m: 1.5
   tilt_deg: 30.0
 - id: 1
   name: transversal_001
   section: transversal
-  position: [-1.749362, -4.249561, 1.1]
-  orientation: [-0.859271, -0.107948, 0.062324, 0.496101]
-  look_at: [-2.07068, -2.99089, 0.35]
-  covered: 316
-  arc_m: 0.000339
+  position: [-1.095838, -3.492909, 1.4]
+  orientation: [-0.649325, -0.604289, 0.314573, 0.338017]
+  look_at: [-2.321398, -3.404739, 0.539635]
+  covered: 836
+  arc_m: 0.101775
   standoff_m: 1.5
-  tilt_deg: 30.0
+  tilt_deg: 35.0
 - id: 2
-  name: transversal_002
-  section: transversal
-  position: [-1.737322, -4.047991, 1.1]
-  orientation: [-0.63408, -0.589867, 0.34056, 0.366086]
-  look_at: [-3.032975, -3.954262, 0.35]
-  covered: 90
-  arc_m: 0.223251
+  name: extraction_002
+  section: extraction
+  position: [-1.095838, -3.492909, 1.4]
+  orientation: [-0.517628, -0.481727, 0.481727, 0.517628]
+  look_at: [-2.591971, -3.385273, 1.4]
+  covered: 72
+  arc_m: 0.101775
   standoff_m: 1.5
-  tilt_deg: 30.0
+  tilt_deg: 0.0
 - id: 3
-  name: transversal_003
-  section: transversal
-  position: [-1.694291, -3.449854, 1.1]
-  orientation: [-0.633963, -0.589992, 0.340632, 0.366019]
-  look_at: [-2.98998, -3.356639, 0.35]
-  covered: 155
-  arc_m: 0.822934
+  name: vertical_003
+  section: vertical
+  position: [-1.095838, -3.492909, 1.4]
+  orientation: [-0.338017, -0.314573, 0.604289, 0.649325]
+  look_at: [-2.321398, -3.404739, 2.260365]
+  covered: 54
+  arc_m: 0.101775
   standoff_m: 1.5
-  tilt_deg: 30.0
+  tilt_deg: -35.0
 - id: 4
   name: transversal_004
   section: transversal
-  position: [-1.743899, -2.487193, 1.1]
-  orientation: [-0.542002, -0.675451, 0.389972, 0.312925]
-  look_at: [-3.012092, -2.768596, 0.35]
-  covered: 53
-  arc_m: 1.973402
+  position: [-1.279247, -2.926575, 1.1]
+  orientation: [-0.597866, -0.626544, 0.361735, 0.345178]
+  look_at: [-2.576861, -2.987394, 0.35]
+  covered: 588
+  arc_m: 0.68304
   standoff_m: 1.5
   tilt_deg: 30.0
 - id: 5
   name: transversal_005
   section: transversal
-  position: [-1.750936, -2.456168, 1.1]
-  orientation: [-0.273352, -0.821753, 0.47444, 0.15782]
-  look_at: [-2.52907, -3.496364, 0.35]
-  covered: 360
-  arc_m: 2.115611
+  position: [-1.079466, -2.917212, 1.4]
+  orientation: [-0.612353, -0.641726, 0.334061, 0.318771]
+  look_at: [-2.306847, -2.974739, 0.539635]
+  covered: 874
+  arc_m: 0.708031
   standoff_m: 1.5
-  tilt_deg: 30.0
+  tilt_deg: 35.0
 - id: 6
-  name: extraction_006
-  section: extraction
-  position: [-1.852813, -2.452775, 1.1]
-  orientation: [-0.009057, -0.865978, 0.499973, 0.005229]
-  look_at: [-1.879982, -3.751529, 0.35]
-  covered: 260
-  arc_m: 3.239666
+  name: vertical_006
+  section: vertical
+  position: [-1.079466, -2.917212, 1.4]
+  orientation: [-0.488155, -0.511571, 0.511571, 0.488155]
+  look_at: [-2.577822, -2.987439, 1.4]
+  covered: 203
+  arc_m: 0.708031
   standoff_m: 1.5
-  tilt_deg: 30.0
+  tilt_deg: 0.0
 - id: 7
-  name: transversal_007
-  section: transversal
-  position: [-2.436081, -2.45295, 1.1]
-  orientation: [-0.0, 0.866025, -0.5, 0.0]
-  look_at: [-2.436081, -3.751988, 0.35]
-  covered: 521
-  arc_m: 3.822934
+  name: vertical_007
+  section: vertical
+  position: [-1.079466, -2.917212, 1.4]
+  orientation: [-0.318771, -0.334061, 0.641726, 0.612353]
+  look_at: [-2.306847, -2.974739, 2.260365]
+  covered: 139
+  arc_m: 0.708031
   standoff_m: 1.5
-  tilt_deg: 30.0
+  tilt_deg: -35.0
 - id: 8
   name: transversal_008
   section: transversal
-  position: [-3.036081, -2.45295, 1.1]
-  orientation: [-0.0, 0.866025, -0.5, 0.0]
-  look_at: [-3.036081, -3.751988, 0.35]
-  covered: 592
-  arc_m: 4.422934
+  position: [-1.353397, -2.400543, 1.1]
+  orientation: [-0.542002, -0.675451, 0.389972, 0.312925]
+  look_at: [-2.62159, -2.681947, 0.35]
+  covered: 357
+  arc_m: 1.277005
   standoff_m: 1.5
   tilt_deg: 30.0
 - id: 9
-  name: transversal_009
-  section: transversal
-  position: [-3.636081, -2.45295, 1.1]
-  orientation: [-0.0, 0.866025, -0.5, 0.0]
-  look_at: [-3.636081, -3.751988, 0.35]
-  covered: 643
-  arc_m: 5.022934
+  name: cart_009
+  section: cart
+  position: [-1.158146, -2.357218, 1.4]
+  orientation: [-0.555135, -0.691819, 0.360138, 0.288985]
+  look_at: [-2.357698, -2.623391, 0.539635]
+  covered: 648
+  arc_m: 1.289385
   standoff_m: 1.5
-  tilt_deg: 30.0
+  tilt_deg: 35.0
 - id: 10
-  name: transversal_010
-  section: transversal
-  position: [-4.236081, -2.45295, 1.1]
-  orientation: [-0.0, 0.866025, -0.5, 0.0]
-  look_at: [-4.236081, -3.751988, 0.35]
-  covered: 579
-  arc_m: 5.622934
+  name: vertical_010
+  section: vertical
+  position: [-1.158146, -2.357218, 1.4]
+  orientation: [-0.442543, -0.551504, 0.551504, 0.442543]
+  look_at: [-2.622529, -2.682155, 1.4]
+  covered: 134
+  arc_m: 1.289385
   standoff_m: 1.5
-  tilt_deg: 30.0
+  tilt_deg: 0.0
 - id: 11
-  name: transversal_011
-  section: transversal
-  position: [-4.836081, -2.45295, 1.1]
-  orientation: [-0.0, 0.866025, -0.5, 0.0]
-  look_at: [-4.836081, -3.751988, 0.35]
-  covered: 203
-  arc_m: 6.222934
+  name: vertical_011
+  section: vertical
+  position: [-1.158146, -2.357218, 1.4]
+  orientation: [-0.288985, -0.360138, 0.691819, 0.555135]
+  look_at: [-2.357698, -2.623391, 2.260365]
+  covered: 79
+  arc_m: 1.289385
   standoff_m: 1.5
-  tilt_deg: 30.0
+  tilt_deg: -35.0
 - id: 12
   name: transversal_012
   section: transversal
-  position: [-5.094205, -2.451771, 1.1]
-  orientation: [-0.4821, 0.71943, -0.415363, 0.278341]
-  look_at: [-3.892725, -2.94568, 0.35]
-  covered: 332
-  arc_m: 6.559316
+  position: [-1.511333, -2.135871, 1.1]
+  orientation: [-0.273352, -0.821753, 0.47444, 0.15782]
+  look_at: [-2.289467, -3.176067, 0.35]
+  covered: 609
+  arc_m: 1.883796
   standoff_m: 1.5
   tilt_deg: 30.0
 - id: 13
   name: transversal_013
   section: transversal
-  position: [-5.096613, -2.455894, 1.1]
-  orientation: [-0.182288, 0.846623, -0.488798, 0.105244]
-  look_at: [-4.562, -3.639824, 0.35]
-  covered: 322
-  arc_m: 7.660432
+  position: [-1.391531, -1.975722, 1.4]
+  orientation: [-0.279976, -0.841666, 0.438144, 0.145746]
+  look_at: [-2.127549, -2.959618, 0.539635]
+  covered: 725
+  arc_m: 1.892785
   standoff_m: 1.5
-  tilt_deg: 30.0
+  tilt_deg: 35.0
 - id: 14
-  name: transversal_014
-  section: transversal
-  position: [-5.09665, -2.495825, 1.1]
-  orientation: [-0.595737, 0.628568, -0.362904, 0.343949]
-  look_at: [-3.799479, -2.565447, 0.35]
-  covered: 63
-  arc_m: 7.778683
+  name: vertical_014
+  section: vertical
+  position: [-1.391531, -1.975722, 1.4]
+  orientation: [-0.223191, -0.670959, 0.670959, 0.223191]
+  look_at: [-2.290043, -3.176837, 1.4]
+  covered: 275
+  arc_m: 1.892785
   standoff_m: 1.5
-  tilt_deg: 30.0
+  tilt_deg: 0.0
 - id: 15
-  name: transversal_015
-  section: transversal
-  position: [-5.0955, -3.05295, 1.1]
-  orientation: [-0.612372, 0.612372, -0.353553, 0.353553]
-  look_at: [-3.796462, -3.05295, 0.35]
-  covered: 238
-  arc_m: 8.335807
+  name: vertical_015
+  section: vertical
+  position: [-1.391531, -1.975722, 1.4]
+  orientation: [-0.145746, -0.438144, 0.841666, 0.279976]
+  look_at: [-2.127549, -2.959618, 2.260365]
+  covered: 145
+  arc_m: 1.892785
   standoff_m: 1.5
-  tilt_deg: 30.0
+  tilt_deg: -35.0
 - id: 16
-  name: transversal_016
-  section: transversal
-  position: [-5.0955, -3.65295, 1.1]
-  orientation: [-0.612372, 0.612372, -0.353553, 0.353553]
-  look_at: [-3.796462, -3.65295, 0.35]
-  covered: 113
-  arc_m: 8.935807
+  name: vertical_016
+  section: vertical
+  position: [-1.840264, -1.852906, 1.4]
+  orientation: [-0.004829, -0.461723, 0.886962, 0.009276]
+  look_at: [-1.865963, -3.081366, 2.260365]
+  covered: 135
+  arc_m: 2.505958
   standoff_m: 1.5
-  tilt_deg: 30.0
+  tilt_deg: -35.0
 - id: 17
-  name: transversal_017
-  section: transversal
-  position: [-5.096464, -4.213696, 1.1]
-  orientation: [-0.627216, 0.59716, -0.34477, 0.362124]
-  look_at: [-3.79899, -4.149955, 0.35]
-  covered: 27
-  arc_m: 9.496553
+  name: extraction_017
+  section: extraction
+  position: [-1.840264, -1.852906, 1.4]
+  orientation: [-0.007395, -0.707068, 0.707068, 0.007395]
+  look_at: [-1.871636, -3.352578, 1.4]
+  covered: 155
+  arc_m: 2.505958
   standoff_m: 1.5
-  tilt_deg: 30.0
+  tilt_deg: 0.0
 - id: 18
   name: transversal_018
   section: transversal
-  position: [-5.095434, -4.249765, 1.1]
-  orientation: [-0.794948, 0.343596, -0.198375, 0.458963]
-  look_at: [-4.149247, -3.359692, 0.35]
-  covered: 440
-  arc_m: 9.611058
+  position: [-1.840264, -1.852906, 1.4]
+  orientation: [-0.009276, -0.886962, 0.461723, 0.004829]
+  look_at: [-1.865963, -3.081366, 0.539635]
+  covered: 609
+  arc_m: 2.505958
   standoff_m: 1.5
-  tilt_deg: 30.0
+  tilt_deg: 35.0
 - id: 19
   name: transversal_019
   section: transversal
-  position: [-5.071219, -4.251471, 1.1]
-  orientation: [-0.865007, 0.041984, -0.02424, 0.499412]
-  look_at: [-4.945414, -2.958539, 0.35]
-  covered: 215
-  arc_m: 10.734865
+  position: [-1.844447, -2.052863, 1.1]
+  orientation: [-0.009057, -0.865978, 0.499973, 0.005229]
+  look_at: [-1.871616, -3.351616, 0.35]
+  covered: 417
+  arc_m: 2.510141
   standoff_m: 1.5
   tilt_deg: 30.0
 - id: 20
-  name: transversal_020
-  section: transversal
-  position: [-4.548932, -4.25295, 1.1]
-  orientation: [-0.866025, 0.0, 0.0, 0.5]
-  look_at: [-4.548932, -2.953912, 0.35]
-  covered: 369
-  arc_m: 11.335807
+  name: vertical_020
+  section: vertical
+  position: [-2.436081, -1.85295, 1.4]
+  orientation: [0.0, -0.461749, 0.887011, 0.0]
+  look_at: [-2.436081, -3.081678, 2.260365]
+  covered: 140
+  arc_m: 3.101775
   standoff_m: 1.5
-  tilt_deg: 30.0
+  tilt_deg: -35.0
 - id: 21
-  name: transversal_021
-  section: transversal
-  position: [-3.948932, -4.25295, 1.1]
-  orientation: [-0.866025, 0.0, 0.0, 0.5]
-  look_at: [-3.948932, -2.953912, 0.35]
-  covered: 577
-  arc_m: 11.935807
+  name: extraction_021
+  section: extraction
+  position: [-2.436081, -1.85295, 1.4]
+  orientation: [0.0, 0.707107, -0.707107, 0.0]
+  look_at: [-2.436081, -3.35295, 1.4]
+  covered: 143
+  arc_m: 3.101775
   standoff_m: 1.5
-  tilt_deg: 30.0
+  tilt_deg: 0.0
 - id: 22
   name: transversal_022
   section: transversal
-  position: [-3.348932, -4.25295, 1.1]
-  orientation: [-0.866025, 0.0, 0.0, 0.5]
-  look_at: [-3.348932, -2.953912, 0.35]
-  covered: 580
-  arc_m: 12.535807
+  position: [-2.436081, -1.85295, 1.4]
+  orientation: [-0.0, 0.887011, -0.461749, 0.0]
+  look_at: [-2.436081, -3.081678, 0.539635]
+  covered: 900
+  arc_m: 3.101775
   standoff_m: 1.5
-  tilt_deg: 30.0
+  tilt_deg: 35.0
 - id: 23
   name: transversal_023
   section: transversal
-  position: [-2.748932, -4.25295, 1.1]
-  orientation: [-0.866025, 0.0, 0.0, 0.5]
-  look_at: [-2.748932, -2.953912, 0.35]
-  covered: 597
-  arc_m: 13.135807
+  position: [-2.436081, -2.05295, 1.1]
+  orientation: [-0.0, 0.866025, -0.5, 0.0]
+  look_at: [-2.436081, -3.351988, 0.35]
+  covered: 575
+  arc_m: 3.101775
   standoff_m: 1.5
   tilt_deg: 30.0
 - id: 24
   name: transversal_024
   section: transversal
-  position: [-2.148932, -4.25295, 1.1]
-  orientation: [-0.866025, 0.0, 0.0, 0.5]
-  look_at: [-2.148932, -2.953912, 0.35]
-  covered: 242
-  arc_m: 13.735807
+  position: [-3.036081, -2.05295, 1.1]
+  orientation: [-0.0, 0.866025, -0.5, 0.0]
+  look_at: [-3.036081, -3.351988, 0.35]
+  covered: 603
+  arc_m: 3.701775
   standoff_m: 1.5
   tilt_deg: 30.0
-generated: '2026-10-05 10:49:27'
+- id: 25
+  name: transversal_025
+  section: transversal
+  position: [-3.036081, -1.85295, 1.4]
+  orientation: [-0.0, 0.887011, -0.461749, 0.0]
+  look_at: [-3.036081, -3.081678, 0.539635]
+  covered: 742
+  arc_m: 3.701775
+  standoff_m: 1.5
+  tilt_deg: 35.0
+- id: 26
+  name: transversal_026
+  section: transversal
+  position: [-3.036081, -1.85295, 1.4]
+  orientation: [0.0, 0.707107, -0.707107, 0.0]
+  look_at: [-3.036081, -3.35295, 1.4]
+  covered: 0
+  arc_m: 3.701775
+  standoff_m: 1.5
+  tilt_deg: 0.0
+- id: 27
+  name: vertical_027
+  section: vertical
+  position: [-3.036081, -1.85295, 1.4]
+  orientation: [0.0, -0.461749, 0.887011, 0.0]
+  look_at: [-3.036081, -3.081678, 2.260365]
+  covered: 0
+  arc_m: 3.701775
+  standoff_m: 1.5
+  tilt_deg: -35.0
+- id: 28
+  name: transversal_028
+  section: transversal
+  position: [-3.636081, -2.05295, 1.1]
+  orientation: [-0.0, 0.866025, -0.5, 0.0]
+  look_at: [-3.636081, -3.351988, 0.35]
+  covered: 609
+  arc_m: 4.301775
+  standoff_m: 1.5
+  tilt_deg: 30.0
+- id: 29
+  name: transversal_029
+  section: transversal
+  position: [-4.236081, -2.05295, 1.1]
+  orientation: [-0.0, 0.866025, -0.5, 0.0]
+  look_at: [-4.236081, -3.351988, 0.35]
+  covered: 547
+  arc_m: 4.901775
+  standoff_m: 1.5
+  tilt_deg: 30.0
+- id: 30
+  name: transversal_030
+  section: transversal
+  position: [-4.836081, -2.05295, 1.1]
+  orientation: [-0.0, 0.866025, -0.5, 0.0]
+  look_at: [-4.836081, -3.351988, 0.35]
+  covered: 217
+  arc_m: 5.501775
+  standoff_m: 1.5
+  tilt_deg: 30.0
+- id: 31
+  name: transversal_031
+  section: transversal
+  position: [-5.261231, -2.091338, 1.1]
+  orientation: [-0.182288, 0.846623, -0.488798, 0.105244]
+  look_at: [-4.726618, -3.275268, 0.35]
+  covered: 311
+  arc_m: 6.128445
+  standoff_m: 1.5
+  tilt_deg: 30.0
+- id: 32
+  name: transversal_032
+  section: transversal
+  position: [-5.464165, -2.299686, 1.1]
+  orientation: [-0.4821, 0.71943, -0.415363, 0.278341]
+  look_at: [-4.262685, -2.793595, 0.35]
+  covered: 351
+  arc_m: 6.733876
+  standoff_m: 1.5
+  tilt_deg: 30.0
+- id: 33
+  name: cart_033
+  section: cart
+  position: [-5.496075, -2.474388, 1.1]
+  orientation: [-0.595737, 0.628568, -0.362904, 0.343949]
+  look_at: [-4.198904, -2.544009, 0.35]
+  covered: 176
+  arc_m: 7.036086
+  standoff_m: 1.5
+  tilt_deg: 30.0
+- id: 34
+  name: transversal_034
+  section: transversal
+  position: [-5.4955, -3.05295, 1.1]
+  orientation: [-0.612372, 0.612372, -0.353553, 0.353553]
+  look_at: [-4.196462, -3.05295, 0.35]
+  covered: 281
+  arc_m: 7.614648
+  standoff_m: 1.5
+  tilt_deg: 30.0
+- id: 35
+  name: transversal_035
+  section: transversal
+  position: [-5.4955, -3.65295, 1.1]
+  orientation: [-0.612372, 0.612372, -0.353553, 0.353553]
+  look_at: [-4.196462, -3.65295, 0.35]
+  covered: 208
+  arc_m: 8.214648
+  standoff_m: 1.5
+  tilt_deg: 30.0
+- id: 36
+  name: cart_036
+  section: cart
+  position: [-5.495982, -4.233323, 1.1]
+  orientation: [-0.627216, 0.59716, -0.34477, 0.362124]
+  look_at: [-4.198508, -4.169582, 0.35]
+  covered: 139
+  arc_m: 8.834275
+  standoff_m: 1.5
+  tilt_deg: 30.0
+- id: 37
+  name: transversal_037
+  section: transversal
+  position: [-5.386784, -4.523837, 1.1]
+  orientation: [-0.794948, 0.343596, -0.198375, 0.458963]
+  look_at: [-4.440597, -3.633763, 0.35]
+  covered: 129
+  arc_m: 9.387616
+  standoff_m: 1.5
+  tilt_deg: 30.0
+- id: 38
+  name: transversal_038
+  section: transversal
+  position: [-5.109957, -4.649591, 1.1]
+  orientation: [-0.865007, 0.041984, -0.02424, 0.499412]
+  look_at: [-4.984152, -3.356659, 0.35]
+  covered: 0
+  arc_m: 10.014177
+  standoff_m: 1.5
+  tilt_deg: 30.0
+- id: 39
+  name: transversal_039
+  section: transversal
+  position: [-4.548932, -4.65295, 1.1]
+  orientation: [-0.866025, 0.0, 0.0, 0.5]
+  look_at: [-4.548932, -3.353912, 0.35]
+  covered: 195
+  arc_m: 10.614648
+  standoff_m: 1.5
+  tilt_deg: 30.0
+- id: 40
+  name: transversal_040
+  section: transversal
+  position: [-3.948932, -4.65295, 1.1]
+  orientation: [-0.866025, 0.0, 0.0, 0.5]
+  look_at: [-3.948932, -3.353912, 0.35]
+  covered: 471
+  arc_m: 11.214648
+  standoff_m: 1.5
+  tilt_deg: 30.0
+- id: 41
+  name: transversal_041
+  section: transversal
+  position: [-3.348932, -4.65295, 1.1]
+  orientation: [-0.866025, 0.0, 0.0, 0.5]
+  look_at: [-3.348932, -3.353912, 0.35]
+  covered: 698
+  arc_m: 11.814648
+  standoff_m: 1.5
+  tilt_deg: 30.0
+- id: 42
+  name: transversal_042
+  section: transversal
+  position: [-2.748932, -4.65295, 1.1]
+  orientation: [-0.866025, 0.0, 0.0, 0.5]
+  look_at: [-2.748932, -3.353912, 0.35]
+  covered: 536
+  arc_m: 12.414648
+  standoff_m: 1.5
+  tilt_deg: 30.0
+- id: 43
+  name: transversal_043
+  section: transversal
+  position: [-2.148932, -4.65295, 1.1]
+  orientation: [-0.866025, 0.0, 0.0, 0.5]
+  look_at: [-2.148932, -3.353912, 0.35]
+  covered: 234
+  arc_m: 13.014648
+  standoff_m: 1.5
+  tilt_deg: 30.0
+generated: '2026-10-05 11:55:19'
 notes: {description: 'Simulation: fixed ring around the Campetella, the camera looking at the machine 45 deg down from above,
     evenly spaced along one forward lap (for mapping).', experiment_file: /fnh_pkgs/src/renee_simulation/renee_trajectory_generation/config/experiments/mapping.yaml,
   method: ring, target: whole machine, lap_length_m: 15.312873, duration_s: 0.3}

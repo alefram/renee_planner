@@ -69,7 +69,10 @@ the machine, at `ring.height_m` (null: the machine's top + `above_top_m`,
 capped at `workspace.camera_height_m`), and looks at the machine `ring.pitch_deg`
 down from horizontal. Every pose is kept. The surface and visibility are
 still computed, so the viewer shows what the ring sees and what it misses
-(red). Example: `config/experiments/mapping.yaml` (45° from above, every 0.4 m).
+(red). `ring.extra_rows` add poses at the same lane points with their own
+height and pitch (negative: looking up); a row with `sections` only keeps the
+poses within `near_m` of them (e.g. the tall vertical column). Example:
+`config/experiments/mapping.yaml`.
 
 | File | What it does | Input → Output |
 |---|---|---|
